@@ -85,14 +85,6 @@ export function PublicNavbar() {
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
           <span>BMKG &bull; USGS Live</span>
         </div>
-
-        <Link
-          href="/admin/login"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-750 text-xs font-semibold text-slate-300 hover:text-white transition-all shadow-sm"
-        >
-          <Lock className="h-3 w-3 text-rose-400" />
-          <span>Admin Portal</span>
-        </Link>
       </div>
     </nav>
   );
