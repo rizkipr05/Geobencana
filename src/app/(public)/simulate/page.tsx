@@ -42,6 +42,7 @@ interface Preset {
   depthKm: number;
   slipMeters: number;
   mechanism: "SUBDUCTION" | "STRIKE_SLIP" | "NORMAL";
+  disasterType: "EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION";
   description: string;
 }
 
@@ -53,7 +54,18 @@ const PRESETS: Preset[] = [
     depthKm: 15,
     slipMeters: 18,
     mechanism: "SUBDUCTION",
+    disasterType: "TSUNAMI",
     description: "Skenario ruptur penuh segmen Selat Sunda - Jawa Barat dengan potensi tsunami pesisir Anyer & Lampung.",
+  },
+  {
+    name: "Erupsi Anak Krakatau",
+    location: "Selat Sunda, Lampung",
+    magnitude: 7.2,
+    depthKm: 5,
+    slipMeters: 8,
+    mechanism: "NORMAL",
+    disasterType: "VOLCANO",
+    description: "Erupsi eksplosif kaldera vulkanik, kolom awan panas piroklastik, lontaran lava pijar dan longsoran kawah laut.",
   },
   {
     name: "Sesar Lembang",
@@ -62,7 +74,18 @@ const PRESETS: Preset[] = [
     depthKm: 10,
     slipMeters: 2.8,
     mechanism: "STRIKE_SLIP",
-    description: "Skenario sesar darat aktif membelah utara Bandung, guncangan tanah sangat kuat di area padat penduduk.",
+    disasterType: "EARTHQUAKE",
+    description: "Skenario sesar darat aktif membelah utara Bandung, guncangan tanah sangat kuat merobek kawasan padat perkotaan.",
+  },
+  {
+    name: "Likuifaksi Sesar Palu-Koro",
+    location: "Balaroa & Petobo, Sulawesi Tengah",
+    magnitude: 7.5,
+    depthKm: 10,
+    slipMeters: 6.0,
+    mechanism: "STRIKE_SLIP",
+    disasterType: "LIQUEFACTION",
+    description: "Skenario fenomena likuifaksi masif tanah mencair, semburan lumpur geyser & amblasnya fondasi permukiman.",
   },
   {
     name: "Megathrust Mentawai",
@@ -71,16 +94,8 @@ const PRESETS: Preset[] = [
     depthKm: 18,
     slipMeters: 20,
     mechanism: "SUBDUCTION",
-    description: "Zona seismic gap Mentawai, potensi tsunami tinggi menuju pesisir Kota Padang dan Bengkulu.",
-  },
-  {
-    name: "Sesar Palu-Koro",
-    location: "Teluk Palu, Sulawesi Tengah",
-    magnitude: 7.5,
-    depthKm: 10,
-    slipMeters: 6.0,
-    mechanism: "STRIKE_SLIP",
-    description: "Skenario sesar mendatar geser cepat memicu longsoran dasar laut & tsunami teluk sempit.",
+    disasterType: "TSUNAMI",
+    description: "Zona seismic gap Mentawai, deformasi lempeng subduksi memicu tsunami tinggi menuju pesisir Kota Padang.",
   },
 ];
 
@@ -89,11 +104,12 @@ export default function SimulatePage() {
   const [depthKm, setDepthKm] = useState<number>(15);
   const [slipMeters, setSlipMeters] = useState<number>(18);
   const [mechanism, setMechanism] = useState<"SUBDUCTION" | "STRIKE_SLIP" | "NORMAL">("SUBDUCTION");
+  const [disasterType, setDisasterType] = useState<"EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION">("TSUNAMI");
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [activePreset, setActivePreset] = useState<string>("Megathrust Selat Sunda");
 
   // Physics & Impact Calculations
-  const isTsunamiPotential = magnitude >= 7.0 && depthKm <= 50 && mechanism === "SUBDUCTION";
+  const isTsunamiPotential = magnitude >= 7.0 && depthKm <= 50 && (mechanism === "SUBDUCTION" || disasterType === "TSUNAMI");
   const energyJoules = Math.pow(10, 4.8 + 1.5 * magnitude);
   const megatonsTNT = energyJoules / 4.184e15;
   const pgaEstimated = Math.min(1.8, ((Math.pow(10, 0.3 * magnitude) / Math.sqrt(depthKm * 20)) * 0.15)).toFixed(2);
@@ -111,6 +127,7 @@ export default function SimulatePage() {
     setDepthKm(p.depthKm);
     setSlipMeters(p.slipMeters);
     setMechanism(p.mechanism);
+    setDisasterType(p.disasterType);
   };
 
   const triggerRunSimulation = () => {
@@ -224,13 +241,16 @@ export default function SimulatePage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: 3D Canvas & Physics Metrics (7 cols) */}
         <div className="lg:col-span-7 flex flex-col gap-6">
-          <div className="h-[480px]">
+          <div className="h-[540px]">
             <ThreeEarthquakeCanvas
               magnitude={magnitude}
               depthKm={depthKm}
               slipMeters={slipMeters}
               isTsunamiActive={isTsunamiPotential}
               isSimulating={isSimulating}
+              mechanism={mechanism}
+              disasterType={disasterType}
+              onDisasterTypeChange={setDisasterType}
             />
           </div>
 

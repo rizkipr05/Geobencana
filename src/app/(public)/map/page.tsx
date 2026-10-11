@@ -174,7 +174,7 @@ export default function PublicMapPage() {
   return (
     <div
       ref={containerRef}
-      className="flex-1 flex flex-col lg:flex-row h-[calc(100vh-4rem)] overflow-hidden relative bg-slate-950"
+      className="flex-1 flex flex-col lg:flex-row h-full min-h-0 w-full overflow-hidden relative bg-slate-950"
     >
       {/* Sidebar Disaster Stream & Filters (Collapsible for Max Map Space) */}
       {isSidebarOpen && (

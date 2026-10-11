@@ -109,6 +109,147 @@ export function playSingleBeep(freq = 880, duration = 0.25) {
   }
 }
 
+export function playEarthquakeRumble(duration = 4.5) {
+  try {
+    const ctx = initAudioContext();
+    if (!ctx) return;
+
+    // Sub-bass oscillator (38 - 55 Hz)
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(42, ctx.currentTime);
+
+    // Random frequency modulation for realistic ground tremor
+    const lfo = ctx.createOscillator();
+    lfo.type = "sawtooth";
+    lfo.frequency.setValueAtTime(8, ctx.currentTime);
+
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.setValueAtTime(15, ctx.currentTime);
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.01, ctx.currentTime);
+    masterGain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 0.4);
+    masterGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+    osc.connect(masterGain);
+    masterGain.connect(ctx.destination);
+
+    osc.start();
+    lfo.start();
+    osc.stop(ctx.currentTime + duration);
+    lfo.stop(ctx.currentTime + duration);
+  } catch {
+    // ignore
+  }
+}
+
+export function playVolcanoBlast(duration = 4.0) {
+  try {
+    const ctx = initAudioContext();
+    if (!ctx) return;
+
+    // Deep explosive low rumble
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(65, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(25, ctx.currentTime + duration);
+
+    // Blast noise buffer simulation
+    const bufferSize = ctx.sampleRate * 1.5;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.4));
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(320, ctx.currentTime);
+    filter.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + duration);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+    osc.connect(filter);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    noise.start();
+    osc.stop(ctx.currentTime + duration);
+    noise.stop(ctx.currentTime + duration);
+  } catch {
+    // ignore
+  }
+}
+
+export function playTsunamiSurge(duration = 5.0) {
+  try {
+    const ctx = initAudioContext();
+    if (!ctx) return;
+
+    // Ocean surge roaring filter sweep
+    const bufferSize = ctx.sampleRate * Math.min(duration, 5.0);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(120, ctx.currentTime);
+    filter.frequency.linearRampToValueAtTime(450, ctx.currentTime + 2.0);
+    filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + duration);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.02, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.32, ctx.currentTime + 1.8);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    noise.start();
+    noise.stop(ctx.currentTime + duration);
+  } catch {
+    // ignore
+  }
+}
+
+export function playTransformerSparks() {
+  try {
+    const ctx = initAudioContext();
+    if (!ctx) return;
+
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(120, ctx.currentTime); // 60Hz/120Hz mains buzz
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+  } catch {
+    // ignore
+  }
+}
+
 export function getSirenState() {
   return isPlaying;
 }

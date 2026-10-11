@@ -406,8 +406,8 @@ export default function DisasterMap({
   }, [selectedDisaster, showShakingZones]);
 
   return (
-    <div className="relative w-full h-full min-h-[480px] overflow-hidden bg-slate-950">
-      <div ref={mapContainerRef} className="w-full h-full min-h-[480px] z-10" />
+    <div className="relative w-full h-full overflow-hidden bg-slate-950">
+      <div ref={mapContainerRef} className="w-full h-full z-10" />
 
       {/* Floating Map Controls & Layer Switcher Bar */}
       <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2">
