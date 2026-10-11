@@ -15,12 +15,30 @@ import {
   Info,
   X,
   Radio,
+  Volume2,
+  VolumeX,
+  ShieldAlert,
+  Flame,
+  Waves,
+  Eye,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  startEmergencySiren,
+  stopEmergencySiren,
+  playSingleBeep,
+} from "@/lib/emergency-siren";
 
 const DisasterMap = dynamic(
   () => import("@/components/admin/disaster-map"),
-  { ssr: false, loading: () => <div className="h-full w-full flex items-center justify-center bg-slate-950 text-xs text-slate-500 font-mono">Memuat Peta Spasial Global...</div> }
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full flex items-center justify-center bg-slate-950 text-xs text-slate-500 font-mono">
+        Memuat Peta Spasial Global (Esri Dark Gray GIS)...
+      </div>
+    ),
+  }
 );
 
 interface DisasterItem {
@@ -45,6 +63,11 @@ export default function PublicMapPage() {
   const [minMagnitude, setMinMagnitude] = useState(0);
   const [selectedDisaster, setSelectedDisaster] = useState<DisasterItem | null>(null);
 
+  // Early Warning System state
+  const [criticalAlert, setCriticalAlert] = useState<DisasterItem | null>(null);
+  const [isSirenActive, setIsSirenActive] = useState<boolean>(false);
+  const [bannerDismissed, setBannerDismissed] = useState<boolean>(false);
+
   // AI Drawer state
   const [aiReport, setAiReport] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -55,10 +78,22 @@ export default function PublicMapPage() {
       try {
         const res = await fetch("/api/admin/disasters?limit=150");
         const data = await res.json();
-        if (data.success) {
+        if (data.success && data.disasters) {
           setDisasters(data.disasters);
           if (data.disasters.length > 0) {
             setSelectedDisaster(data.disasters[0]);
+          }
+
+          // Detect highest severity or tsunami hazard for Early Warning Banner
+          const critical = data.disasters.find(
+            (d: DisasterItem) =>
+              (d.magnitude || 0) >= 6.5 ||
+              d.severityLevel === "CRITICAL" ||
+              d.metadata?.tsunami === 1 ||
+              d.title.toLowerCase().includes("tsunami")
+          );
+          if (critical) {
+            setCriticalAlert(critical);
           }
         }
       } catch {
@@ -68,6 +103,10 @@ export default function PublicMapPage() {
       }
     }
     loadData();
+
+    return () => {
+      stopEmergencySiren();
+    };
   }, []);
 
   const filteredDisasters = disasters.filter((d) => {
@@ -78,6 +117,16 @@ export default function PublicMapPage() {
     const matchMag = (d.magnitude || 0) >= minMagnitude;
     return matchSearch && matchCat && matchMag;
   });
+
+  const handleToggleSiren = () => {
+    if (isSirenActive) {
+      stopEmergencySiren();
+      setIsSirenActive(false);
+    } else {
+      startEmergencySiren();
+      setIsSirenActive(true);
+    }
+  };
 
   const handleRunAiAnalysis = async (disaster: DisasterItem) => {
     setAiLoading(true);
@@ -108,11 +157,13 @@ export default function PublicMapPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <Radio className="h-4 w-4 text-rose-500 animate-pulse" />
-              Global Disaster Feeds
+              <span>Global Disaster Feeds</span>
             </h2>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
-              {filteredDisasters.length} Terdeteksi
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+                {filteredDisasters.length} Terdeteksi
+              </span>
+            </div>
           </div>
 
           <div className="relative">
@@ -152,6 +203,38 @@ export default function PublicMapPage() {
               <option value={7.0}>M ≥ 7.0 (Besar/Tsunami)</option>
             </select>
           </div>
+
+          {/* Early Warning Siren Control Bar */}
+          <div className="pt-1 flex items-center justify-between">
+            <button
+              onClick={handleToggleSiren}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-mono font-bold transition-all border ${
+                isSirenActive
+                  ? "bg-rose-600 text-white border-rose-500 animate-pulse shadow-lg shadow-rose-600/40"
+                  : "bg-slate-900 hover:bg-slate-850 text-slate-300 border-slate-800"
+              }`}
+            >
+              {isSirenActive ? (
+                <>
+                  <Volume2 className="h-3.5 w-3.5 text-white animate-spin" />
+                  <span>SIRINE DARURAT AKTIF (STOP)</span>
+                </>
+              ) : (
+                <>
+                  <Volume2 className="h-3.5 w-3.5 text-rose-400" />
+                  <span>Test Sirine Kedaruratan</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => playSingleBeep(1000, 0.2)}
+              className="text-[10px] font-mono text-slate-400 hover:text-slate-200 px-2 py-1 rounded bg-slate-900 border border-slate-800"
+              title="Uji nada audio"
+            >
+              Beep Test
+            </button>
+          </div>
         </div>
 
         {/* Disaster Event Stream List */}
@@ -168,7 +251,8 @@ export default function PublicMapPage() {
           ) : (
             filteredDisasters.map((item) => {
               const isSelected = selectedDisaster?.id === item.id;
-              const isCritical = item.severityLevel === "CRITICAL";
+              const isCritical =
+                item.severityLevel === "CRITICAL" || (item.magnitude || 0) >= 6.5;
 
               return (
                 <div
@@ -215,6 +299,74 @@ export default function PublicMapPage() {
 
       {/* Main Map View */}
       <div className="flex-1 h-full relative">
+        {/* TOP FLOATING VISUAL EARLY WARNING BANNER */}
+        {criticalAlert && !bannerDismissed && (
+          <div className="absolute top-4 left-4 right-4 sm:left-6 sm:right-auto sm:max-w-xl z-30 rounded-2xl bg-slate-950/95 border-2 border-rose-500/80 shadow-2xl shadow-rose-900/40 p-4 backdrop-blur-xl animate-bounce-once">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-xl bg-rose-600/20 border border-rose-500/40 text-rose-500 flex items-center justify-center shrink-0 animate-pulse">
+                  <ShieldAlert className="h-6 w-6 text-rose-500" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-rose-600 text-white font-mono text-[10px] font-black tracking-wider uppercase animate-pulse">
+                      PERINGATAN DINI KEDARURATAN (EARLY WARNING)
+                    </span>
+                    <span className="text-xs font-mono font-bold text-rose-400">
+                      M {criticalAlert.magnitude}
+                    </span>
+                  </div>
+                  <h3 className="text-xs sm:text-sm font-extrabold text-white mt-1 leading-snug">
+                    {criticalAlert.title}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Kedalaman: {criticalAlert.depthKm} km &bull; {criticalAlert.locationName}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setBannerDismissed(true)}
+                className="text-slate-400 hover:text-white p-1"
+                title="Tutup banner peringatan"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Quick Emergency Actions inside Banner */}
+            <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setSelectedDisaster(criticalAlert)}
+                className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-rose-600/30"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                <span>Fokus Episentrum</span>
+              </button>
+
+              <button
+                onClick={() => handleRunAiAnalysis(criticalAlert)}
+                className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-750 text-slate-200 text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+                <span>Analisis Dampak AI</span>
+              </button>
+
+              <button
+                onClick={handleToggleSiren}
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 border ${
+                  isSirenActive
+                    ? "bg-rose-700 text-white border-rose-500 animate-pulse"
+                    : "bg-slate-900 hover:bg-slate-850 text-rose-400 border-rose-500/30"
+                }`}
+              >
+                <Volume2 className="h-3.5 w-3.5" />
+                <span>{isSirenActive ? "Matikan Sirine" : "Bunyikan Sirine"}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         <DisasterMap
           disasters={filteredDisasters.map((d) => ({
             id: d.id,
@@ -288,7 +440,7 @@ export default function PublicMapPage() {
               </button>
               <Link
                 href={`/simulate?mag=${selectedDisaster.magnitude || 6.5}&lat=${selectedDisaster.latitude}&lng=${selectedDisaster.longitude}`}
-                className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-750 text-slate-200 font-semibold text-xs flex items-center gap-1.5"
+                className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-750 text-slate-200 font-semibold text-xs flex items-center gap-1.5"
               >
                 <Compass className="h-3.5 w-3.5 text-sky-400" />
                 <span>Simulasi 3D</span>
@@ -343,7 +495,10 @@ export default function PublicMapPage() {
               <div className="space-y-1.5 text-xs">
                 <span className="font-bold text-slate-200 block text-[11px]">Radius Dampak Spasial:</span>
                 {aiReport.dangerZones.map((z: any, idx: number) => (
-                  <div key={idx} className="p-2.5 rounded-lg bg-slate-900 border border-slate-850 flex items-center justify-between">
+                  <div
+                    key={idx}
+                    className="p-2.5 rounded-lg bg-slate-900 border border-slate-850 flex items-center justify-between"
+                  >
                     <div>
                       <span className="font-semibold text-slate-200 block">{z.ring}</span>
                       <span className="text-[10px] text-slate-400">{z.description}</span>
