@@ -3,8 +3,6 @@ import { db } from "@/db";
 import { disasters, dataSources } from "@/db/schema";
 import { desc, sql, count, avg, max } from "drizzle-orm";
 
-export const dynamic = "force-dynamic";
-
 export async function GET() {
   try {
     if (!db) {
