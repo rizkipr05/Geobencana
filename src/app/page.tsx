@@ -31,21 +31,20 @@ export default function HomePage() {
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 mb-8 backdrop-blur-md shadow-lg">
           <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
           <span className="font-mono text-[11px]">
-            Real-Time Automated Polling: BMKG &bull; USGS (10-Min Cycle)
+            Real-Time Automated Polling: BMKG &bull; USGS (Indonesia) &bull; NASA EONET
           </span>
         </div>
 
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white max-w-5xl leading-tight sm:leading-none">
-          Global Disaster Intelligence &amp;{" "}
+          Indonesia Disaster Intelligence &amp;{" "}
           <span className="bg-gradient-to-r from-rose-500 via-orange-400 to-amber-300 bg-clip-text text-transparent">
             3D Simulation Platform
           </span>
         </h1>
 
         <p className="mt-6 text-sm sm:text-base text-slate-400 max-w-2xl leading-relaxed">
-          Platform terpadu pemantauan bencana global, simulasi interaktif fisika ruptur lempeng &amp;
-          tsunami berbasis Three.js, analisis dampak berantai terhadap fasilitas publik, serta asisten
-          evakuasi berbasis Google Gemini AI.
+          Platform terpadu pemantauan bencana wilayah Indonesia (Gempa Tektonik BMKG &amp; USGS, Kebakaran Hutan, Erupsi Gunung Api &amp; Banjir NASA EONET), simulasi interaktif fisika ruptur lempeng &amp;
+          tsunami berbasis Three.js, serta asisten evakuasi AI.
         </p>
 
         {/* Primary CTA Buttons */}
@@ -80,12 +79,12 @@ export default function HomePage() {
             </div>
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-sm font-bold text-white group-hover:text-rose-400 transition-colors">
-                Global Disaster Map
+                Peta Bencana Indonesia
               </h3>
               <ArrowRight className="h-3.5 w-3.5 text-slate-500 group-hover:text-rose-400 group-hover:translate-x-1 transition-all" />
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Peta interaktif Leaflet kejadian bencana dari BMKG &amp; USGS dengan drawer analisis dampak AI
+              Peta interaktif Leaflet khusus teritori Indonesia dari BMKG, USGS &amp; NASA EONET dengan drawer analisis dampak AI
               dan radius gempa.
             </p>
           </Link>

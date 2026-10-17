@@ -139,7 +139,13 @@ export default function DisasterMap({
       const map = L.map(mapContainerRef.current, {
         center: [-2.5, 118.0], // Indonesia Archipelagic Center
         zoom: 5,
-        zoomControl: false, // We'll position zoomControl cleanly
+        minZoom: 4,
+        maxBounds: [
+          [-14.0, 92.0],
+          [9.0, 144.0],
+        ],
+        maxBoundsViscosity: 0.8,
+        zoomControl: false,
       });
 
       L.control.zoom({ position: "bottomright" }).addTo(map);

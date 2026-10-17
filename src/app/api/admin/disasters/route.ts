@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { disasters, auditLogs } from "@/db/schema";
-import { desc, eq, and, like, or } from "drizzle-orm";
+import { desc, eq, and, like, or, gte, lte } from "drizzle-orm";
 import { getCurrentAdmin } from "@/lib/auth";
 
 export async function GET(req: Request) {
@@ -17,6 +17,14 @@ export async function GET(req: Request) {
     }
 
     const conditions = [];
+
+    // Filter strictly within Indonesia archipelago coordinates
+    conditions.push(
+      gte(disasters.latitude, -11.5),
+      lte(disasters.latitude, 6.5),
+      gte(disasters.longitude, 94.0),
+      lte(disasters.longitude, 141.5)
+    );
 
     if (category && category !== "ALL") {
       conditions.push(eq(disasters.categoryCode, category));

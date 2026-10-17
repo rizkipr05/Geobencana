@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { disasters, dataSources } from "@/db/schema";
-import { desc, sql, count, avg, max } from "drizzle-orm";
+import { disasters } from "@/db/schema";
+import { desc, count, avg, max, and, gte, lte } from "drizzle-orm";
 
 export async function GET() {
   try {
@@ -9,14 +9,21 @@ export async function GET() {
       return NextResponse.json({ success: false, error: "Database not connected" }, { status: 500 });
     }
 
-    // 1. Overall stats
-    const totalCountRes = await db.select({ count: count() }).from(disasters);
+    const indoBounds = and(
+      gte(disasters.latitude, -11.5),
+      lte(disasters.latitude, 6.5),
+      gte(disasters.longitude, 94.0),
+      lte(disasters.longitude, 141.5)
+    );
+
+    // 1. Overall stats (Indonesia territory)
+    const totalCountRes = await db.select({ count: count() }).from(disasters).where(indoBounds);
     const totalEvents = Number(totalCountRes[0]?.count || 0);
 
-    const maxMagRes = await db.select({ maxMag: max(disasters.magnitude) }).from(disasters);
+    const maxMagRes = await db.select({ maxMag: max(disasters.magnitude) }).from(disasters).where(indoBounds);
     const maxMagnitude = Number(maxMagRes[0]?.maxMag || 0);
 
-    const avgMagRes = await db.select({ avgMag: avg(disasters.magnitude) }).from(disasters);
+    const avgMagRes = await db.select({ avgMag: avg(disasters.magnitude) }).from(disasters).where(indoBounds);
     const avgMagnitude = Number(avgMagRes[0]?.avgMag || 0).toFixed(1);
 
     // 2. Fetch all disasters for accurate client grouping
@@ -35,6 +42,7 @@ export async function GET() {
         metadata: disasters.metadata,
       })
       .from(disasters)
+      .where(indoBounds)
       .orderBy(desc(disasters.occurredAt))
       .limit(100);
 
@@ -71,7 +79,7 @@ export async function GET() {
       if (ev.externalId?.startsWith("USGS")) usgsCount++;
 
       // Check tsunami flag in metadata or title
-      const meta = ev.metadata as any;
+      const meta = ev.metadata as { tsunami?: number } | null;
       if (meta?.tsunami === 1 || ev.title.toLowerCase().includes("tsunami")) {
         tsunamiCount++;
       }

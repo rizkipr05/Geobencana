@@ -42,7 +42,7 @@ const DisasterMap = dynamic(
     loading: () => (
       <div className="h-full w-full flex items-center justify-center bg-slate-950 text-xs text-slate-500 font-mono">
         <Activity className="h-6 w-6 animate-spin text-rose-500 mr-2" />
-        Memuat Peta Spasial Global &amp; Layer Sesar...
+        Memuat Peta Spasial Indonesia &amp; Layer Sesar...
       </div>
     ),
   }
@@ -184,7 +184,7 @@ export default function PublicMapPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-white flex items-center gap-2">
                 <Radio className="h-4 w-4 text-rose-500 animate-pulse" />
-                <span>Global Disaster Feeds</span>
+                <span>Indonesia Disaster Feeds</span>
               </h2>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
