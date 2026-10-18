@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { AdminHeader } from "@/components/admin/header";
 import { formatDate } from "@/lib/utils";
@@ -8,11 +8,9 @@ import {
   AlertTriangle,
   Plus,
   Search,
-  CheckCircle2,
   Trash2,
   MapPin,
   X,
-  Layers,
   Map as MapIcon,
   Table as TableIcon,
   RefreshCw,
@@ -21,6 +19,7 @@ import {
   Activity,
   ShieldCheck,
 } from "lucide-react";
+import { DisasterIcon, getDisasterConfig } from "@/lib/disaster-icons";
 
 // Dynamically import Leaflet map to prevent SSR window issues
 const DisasterMap = dynamic(
@@ -43,6 +42,28 @@ interface DisasterItem {
   occurredAt: string;
 }
 
+interface AiDangerZoneAdmin {
+  ring?: string;
+  radiusKm?: number;
+  damageLevel?: string;
+  description?: string;
+}
+
+interface AiInfrastructureAdmin {
+  hospitals?: string;
+  roadsAndBridges?: string;
+  powerGrid?: string;
+  communications?: string;
+}
+
+interface AiReportAdmin {
+  recommendedAlertLevel?: string;
+  executiveSummary?: string;
+  dangerZones?: AiDangerZoneAdmin[];
+  criticalInfrastructure?: AiInfrastructureAdmin;
+  priorityActions?: string[];
+}
+
 export default function AdminDisastersPage() {
   const [disasters, setDisasters] = useState<DisasterItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +79,13 @@ export default function AdminDisastersPage() {
   // AI Analysis state
   const [analyzingDisaster, setAnalyzingDisaster] = useState<DisasterItem | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiReport, setAiReport] = useState<any>(null);
+  const [aiReport, setAiReport] = useState<AiReportAdmin | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  const refreshDisasters = () => {
+    setLoading(true);
+    setRefreshTrigger((prev) => prev + 1);
+  };
 
   const handleOpenAiAnalysis = async (disaster: DisasterItem) => {
     setAnalyzingDisaster(disaster);
@@ -96,29 +123,33 @@ export default function AdminDisastersPage() {
     description: "",
   });
 
-  const fetchDisasters = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (selectedCategory !== "ALL") params.set("category", selectedCategory);
-      if (selectedSeverity !== "ALL") params.set("severity", selectedSeverity);
-
-      const res = await fetch(`/api/admin/disasters?${params.toString()}`);
-      const data = await res.json();
-      if (data.success) {
-        setDisasters(data.disasters);
-      }
-    } catch {
-      // Ignore error
-    } finally {
-      setLoading(false);
-    }
-  }, [search, selectedCategory, selectedSeverity]);
-
   useEffect(() => {
-    fetchDisasters();
-  }, [fetchDisasters]);
+    let ignore = false;
+    async function load() {
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set("search", search);
+        if (selectedCategory !== "ALL") params.set("category", selectedCategory);
+        if (selectedSeverity !== "ALL") params.set("severity", selectedSeverity);
+
+        const res = await fetch(`/api/admin/disasters?${params.toString()}`);
+        const data = await res.json();
+        if (!ignore && data.success) {
+          setDisasters(data.disasters);
+        }
+      } catch {
+        // Ignore error
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    }
+    load();
+    return () => {
+      ignore = true;
+    };
+  }, [search, selectedCategory, selectedSeverity, refreshTrigger]);
 
   const handleAddDisaster = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,7 +179,7 @@ export default function AdminDisastersPage() {
         severity: "HIGH",
         description: "",
       });
-      fetchDisasters();
+      refreshDisasters();
     } catch {
       alert("Error saat mengirim data");
     } finally {
@@ -199,11 +230,12 @@ export default function AdminDisastersPage() {
               className="py-2 px-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300 focus:outline-none"
             >
               <option value="ALL">Semua Kategori</option>
-              <option value="EARTHQUAKE">Gempa Bumi</option>
-              <option value="TSUNAMI">Tsunami</option>
-              <option value="VOLCANO">Gunung Api</option>
-              <option value="FLOOD">Banjir</option>
-              <option value="WILDFIRE">Kebakaran Hutan</option>
+              <option value="EARTHQUAKE">⚡ Gempa Bumi</option>
+              <option value="WILDFIRE">🔥 Kebakaran Hutan (Karhutla)</option>
+              <option value="VOLCANO">🌋 Erupsi Gunung Api</option>
+              <option value="FLOOD">🌊 Banjir &amp; Bandang</option>
+              <option value="TSUNAMI">🌊 Tsunami</option>
+              <option value="STORM">🌀 Cuaca Ekstrem / Badai</option>
             </select>
 
             <select
@@ -219,7 +251,7 @@ export default function AdminDisastersPage() {
             </select>
 
             <button
-              onClick={() => fetchDisasters()}
+              onClick={() => refreshDisasters()}
               className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white"
               title="Refresh Data"
             >
@@ -286,6 +318,7 @@ export default function AdminDisastersPage() {
               disasters={disasters.map((d) => ({
                 id: d.id,
                 title: d.title,
+                categoryCode: d.categoryCode,
                 latitude: d.latitude,
                 longitude: d.longitude,
                 magnitude: d.magnitude,
@@ -298,6 +331,7 @@ export default function AdminDisastersPage() {
                   ? {
                       id: selectedDisaster.id,
                       title: selectedDisaster.title,
+                      categoryCode: selectedDisaster.categoryCode,
                       latitude: selectedDisaster.latitude,
                       longitude: selectedDisaster.longitude,
                       magnitude: selectedDisaster.magnitude,
@@ -343,26 +377,35 @@ export default function AdminDisastersPage() {
                       </td>
                     </tr>
                   ) : (
-                    disasters.map((item) => (
-                      <tr
-                        key={item.id}
-                        onClick={() => setSelectedDisaster(item)}
-                        className={`hover:bg-slate-850/60 transition-colors cursor-pointer ${
-                          selectedDisaster?.id === item.id ? "bg-rose-500/10 border-l-2 border-rose-500" : ""
-                        }`}
-                      >
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-100">{item.title}</div>
-                          <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                            <MapPin className="h-3 w-3 text-slate-500" />
-                            {item.locationName}
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 font-mono">
-                          <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
-                            {item.categoryCode}
-                          </span>
-                        </td>
+                    disasters.map((item) => {
+                      const catCfg = getDisasterConfig(item.categoryCode);
+                      return (
+                        <tr
+                          key={item.id}
+                          onClick={() => setSelectedDisaster(item)}
+                          className={`hover:bg-slate-850/60 transition-colors cursor-pointer ${
+                            selectedDisaster?.id === item.id ? "bg-rose-500/10 border-l-2 border-rose-500" : ""
+                          }`}
+                        >
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className={`p-1.5 rounded-lg ${catCfg.bgLight} ${catCfg.borderLight} border ${catCfg.textLight} shrink-0 shadow-sm`}>
+                                <DisasterIcon categoryCode={item.categoryCode} className="h-4 w-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-100 truncate">{item.title}</div>
+                                <div className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 truncate">
+                                  <MapPin className="h-3 w-3 text-slate-500 shrink-0" />
+                                  <span>{item.locationName}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${catCfg.bgLight} ${catCfg.textLight} border ${catCfg.borderLight} text-[10px] font-bold uppercase`}>
+                              {catCfg.shortLabel}
+                            </span>
+                          </td>
                         <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
                           {item.latitude.toFixed(2)}, {item.longitude.toFixed(2)}
                         </td>
@@ -414,8 +457,9 @@ export default function AdminDisastersPage() {
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })
+                )}
                 </tbody>
               </table>
             </div>
@@ -648,7 +692,7 @@ export default function AdminDisastersPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-800/60 bg-slate-950/40">
-                            {aiReport.dangerZones.map((z: any, idx: number) => (
+                            {aiReport.dangerZones.map((z: AiDangerZoneAdmin, idx: number) => (
                               <tr key={idx}>
                                 <td className="py-2.5 px-3 font-semibold text-slate-200">{z.ring}</td>
                                 <td className="py-2.5 px-3 font-mono text-rose-400">~{z.radiusKm} km</td>

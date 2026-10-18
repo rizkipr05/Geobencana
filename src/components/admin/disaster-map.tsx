@@ -4,25 +4,24 @@ import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
-  Layers,
   Activity,
-  AlertTriangle,
   Globe2,
   Waves,
-  Eye,
   Zap,
 } from "lucide-react";
+import { getDisasterConfig } from "@/lib/disaster-icons";
 
 export interface DisasterMapItem {
   id: string;
   title: string;
+  categoryCode?: string;
   latitude: number;
   longitude: number;
   magnitude?: number | null;
   depthKm?: number | null;
   severityLevel: string;
   locationName: string;
-  metadata?: any;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface DisasterMapProps {
@@ -131,6 +130,11 @@ export default function DisasterMap({
   const [showFaults, setShowFaults] = useState<boolean>(true);
   const [showShakingZones, setShowShakingZones] = useState<boolean>(true);
 
+  const onSelectRef = useRef(onSelectCoordinate);
+  useEffect(() => {
+    onSelectRef.current = onSelectCoordinate;
+  });
+
   // Initialize Map
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -188,9 +192,9 @@ export default function DisasterMap({
 
       // Coordinate click picker
       map.on("click", (e: L.LeafletMouseEvent) => {
-        if (onSelectCoordinate) {
+        if (onSelectRef.current) {
           const { lat, lng } = e.latlng;
-          onSelectCoordinate(parseFloat(lat.toFixed(4)), parseFloat(lng.toFixed(4)));
+          onSelectRef.current(parseFloat(lat.toFixed(4)), parseFloat(lng.toFixed(4)));
 
           if (pickedMarkerRef.current) {
             pickedMarkerRef.current.setLatLng(e.latlng);
@@ -264,22 +268,41 @@ export default function DisasterMap({
     disasters.forEach((d) => {
       if (!d.latitude || !d.longitude) return;
 
-      const mag = d.magnitude || 4.0;
-      const isCritical = d.severityLevel === "CRITICAL" || mag >= 6.5;
-      const isHigh = d.severityLevel === "HIGH" || mag >= 5.5;
+      const catConfig = getDisasterConfig(d.categoryCode);
+      const isQuake = (d.categoryCode || "EARTHQUAKE").toUpperCase() === "EARTHQUAKE";
+      const mag = d.magnitude;
+      const isCritical = d.severityLevel === "CRITICAL" || (mag && mag >= 6.5);
+      const isHigh = d.severityLevel === "HIGH" || (mag && mag >= 5.5);
       const isSelected = selectedDisaster?.id === d.id;
 
-      const bgColor = isCritical
-        ? "#e11d48"
-        : isHigh
-        ? "#f97316"
-        : mag >= 4.5
-        ? "#eab308"
-        : "#10b981";
+      let markerColor = catConfig.color;
+      let markerGradient = catConfig.gradient;
+      let shadowColor = catConfig.shadowColor;
 
-      const badgeSize = isSelected ? 36 : isCritical ? 32 : isHigh ? 28 : 24;
+      if (isQuake && mag) {
+        if (mag >= 6.5) {
+          markerColor = "#e11d48";
+          markerGradient = "linear-gradient(135deg, #f43f5e, #be123c)";
+          shadowColor = "rgba(225, 29, 72, 0.75)";
+        } else if (mag >= 5.5) {
+          markerColor = "#f97316";
+          markerGradient = "linear-gradient(135deg, #fb923c, #ea580c)";
+          shadowColor = "rgba(249, 115, 22, 0.7)";
+        } else if (mag >= 4.5) {
+          markerColor = "#eab308";
+          markerGradient = "linear-gradient(135deg, #facc15, #ca8a04)";
+          shadowColor = "rgba(234, 179, 8, 0.65)";
+        } else {
+          markerColor = "#10b981";
+          markerGradient = "linear-gradient(135deg, #34d399, #059669)";
+          shadowColor = "rgba(16, 185, 129, 0.6)";
+        }
+      }
 
-      // Custom Glowing HTML Marker
+      const badgeSize = isSelected ? 38 : isCritical ? 34 : isHigh ? 30 : 28;
+      const iconSize = isSelected ? 18 : 15;
+
+      // Custom Glowing HTML Marker with Disaster-Specific Icon
       const customIcon = L.divIcon({
         className: "custom-disaster-marker",
         iconSize: [badgeSize, badgeSize],
@@ -288,16 +311,25 @@ export default function DisasterMap({
           <div style="position:relative;width:${badgeSize}px;height:${badgeSize}px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
             ${
               isCritical || isSelected
-                ? `<div class="seismic-shockwave" style="position:absolute;inset:-6px;border-radius:50%;border:2px solid ${bgColor};"></div>`
+                ? `<div class="seismic-shockwave" style="position:absolute;inset:-6px;border-radius:50%;border:2px solid ${markerColor};"></div>`
                 : ""
             }
-            <div style="width:${badgeSize}px;height:${badgeSize}px;background:${bgColor};border-radius:50%;border:${
-          isSelected ? "3px solid #ffffff" : "2px solid rgba(255,255,255,0.85)"
-        };display:flex;align-items:center;justify-content:center;color:white;font-family:monospace;font-weight:900;font-size:${
-          badgeSize < 28 ? "10px" : "11px"
-        };box-shadow:0 0 ${isSelected ? "18px" : "10px"} ${bgColor};">
-              ${mag.toFixed(1)}
+            <div style="width:${badgeSize}px;height:${badgeSize}px;background:${markerGradient};border-radius:50%;border:${
+              isSelected ? "3px solid #ffffff" : "2px solid rgba(255,255,255,0.92)"
+            };display:flex;align-items:center;justify-content:center;color:white;box-shadow:0 0 ${
+              isSelected ? "18px" : "10px"
+            } ${shadowColor};transition:transform 0.15s ease-out;">
+              <div style="width:${iconSize}px;height:${iconSize}px;display:flex;align-items:center;justify-content:center;color:white;">
+                ${catConfig.svgIcon}
+              </div>
             </div>
+            ${
+              isQuake && mag
+                ? `<div style="position:absolute;bottom:-6px;right:-7px;background:#090d16;border:1.5px solid ${markerColor};color:#ffffff;font-family:monospace;font-weight:900;font-size:9px;padding:0.5px 3.5px;border-radius:4px;white-space:nowrap;box-shadow:0 2px 5px rgba(0,0,0,0.7);line-height:1.2;">
+                    ${mag.toFixed(1)}
+                  </div>`
+                : ""
+            }
           </div>
         `,
       });
@@ -307,13 +339,22 @@ export default function DisasterMap({
       // Interactive Tooltip on Hover
       marker.bindTooltip(
         `
-        <div style="font-family:sans-serif;padding:3px 2px;">
-          <div style="font-weight:bold;color:${bgColor};font-size:12px;margin-bottom:2px;">
-            M ${mag.toFixed(1)} - ${d.title}
+        <div style="font-family:sans-serif;padding:4px 6px;min-width:190px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:3px;">
+            <span style="background:${markerColor}25;border:1px solid ${markerColor}60;color:${markerColor};font-size:10px;font-weight:800;font-family:monospace;padding:1px 6px;border-radius:4px;text-transform:uppercase;">
+              ${catConfig.name}
+            </span>
+            ${mag ? `<span style="font-family:monospace;font-weight:900;color:${markerColor};font-size:12px;">M ${mag.toFixed(1)}</span>` : ""}
           </div>
-          <div style="color:#cbd5e1;font-size:11px;">📍 ${d.locationName}</div>
-          <div style="color:#94a3b8;font-size:10px;margin-top:2px;">
-            Kedalaman: ${d.depthKm ? `${d.depthKm} km` : "—"} &bull; Status: ${d.severityLevel}
+          <div style="font-weight:bold;color:#f8fafc;font-size:12px;margin-bottom:2px;line-height:1.25;">
+            ${d.title}
+          </div>
+          <div style="color:#cbd5e1;font-size:11px;margin-bottom:3px;">
+            📍 ${d.locationName}
+          </div>
+          <div style="color:#94a3b8;font-size:10px;border-top:1px solid rgba(255,255,255,0.1);padding-top:3px;display:flex;justify-content:space-between;">
+            <span>${d.depthKm ? `Kedalaman: ${d.depthKm} km` : "Kejadian Aktif"}</span>
+            <span style="font-weight:bold;color:${markerColor};">${d.severityLevel}</span>
           </div>
         </div>
       `,
@@ -482,16 +523,24 @@ export default function DisasterMap({
       <div className="absolute bottom-4 left-4 z-20 p-3 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-800 text-[10px] text-slate-300 font-mono shadow-2xl space-y-2 max-w-xs sm:max-w-none">
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-ping" />
-            <span className="font-bold text-rose-400">M ≥ 6.5</span> (Kritis/Tsunami)
+            <span className="h-3.5 w-3.5 rounded-full bg-rose-500 flex items-center justify-center text-[9px] text-white">⚡</span>
+            <span className="font-bold text-rose-400">Gempa</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
-            <span className="font-bold text-orange-400">M 5.5 - 6.4</span> (Merusak)
+            <span className="h-3.5 w-3.5 rounded-full bg-amber-500 flex items-center justify-center text-[9px] text-white">🔥</span>
+            <span className="font-bold text-amber-400">Kebakaran (Karhutla)</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />
-            <span className="font-bold text-yellow-400">M &lt; 5.5</span> (Sedang)
+            <span className="h-3.5 w-3.5 rounded-full bg-orange-600 flex items-center justify-center text-[9px] text-white">🌋</span>
+            <span className="font-bold text-orange-400">Gunung Api</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-3.5 w-3.5 rounded-full bg-sky-500 flex items-center justify-center text-[9px] text-white">🌊</span>
+            <span className="font-bold text-sky-400">Banjir/Tsunami</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-3.5 w-3.5 rounded-full bg-purple-500 flex items-center justify-center text-[9px] text-white">🌀</span>
+            <span className="font-bold text-purple-400">Cuaca Ekstrem</span>
           </span>
         </div>
 

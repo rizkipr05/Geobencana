@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { disasters, dataSources, syncLogs, users } from "@/db/schema";
-import { desc, eq, count } from "drizzle-orm";
+import { disasters } from "@/db/schema";
+import { desc } from "drizzle-orm";
 import { AdminHeader } from "@/components/admin/header";
 import { formatDate } from "@/lib/utils";
 import {
@@ -9,20 +9,38 @@ import {
   Flame,
   Activity,
   CheckCircle2,
-  Clock,
   ArrowUpRight,
-  ShieldCheck,
-  RefreshCw,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
+import { DisasterIcon, getDisasterConfig } from "@/lib/disaster-icons";
 
 export const instant = false;
 
+interface DashboardDisasterItem {
+  id: string;
+  title: string;
+  categoryCode: string;
+  locationName: string;
+  magnitude?: number | null;
+  depthKm?: number | null;
+  severityLevel: string;
+  occurredAt: Date | string;
+  status?: string;
+  verifiedStatus?: string;
+}
+
+interface DashboardSourceItem {
+  code: string;
+  name: string;
+  status?: string | null;
+  lastSyncAt?: Date | string | null;
+}
+
 export default async function AdminDashboardPage() {
   // Query live data from Neon if DB connected, or fallback mocks for display
-  let disasterList: any[] = [];
-  let sourcesList: any[] = [];
+  let disasterList: DashboardDisasterItem[] = [];
+  let sourcesList: DashboardSourceItem[] = [];
   let totalDisasters = 0;
   let criticalCount = 0;
 
@@ -202,7 +220,7 @@ export default async function AdminDashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            {sourcesList.map((src: any) => (
+            {sourcesList.map((src: DashboardSourceItem) => (
               <div
                 key={src.code}
                 className="p-3.5 rounded-lg bg-slate-950/70 border border-slate-800/80 flex flex-col justify-between"
@@ -257,16 +275,24 @@ export default async function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {disasterList.map((item: any) => (
+                {disasterList.map((item: DashboardDisasterItem) => (
                   <tr key={item.id} className="hover:bg-slate-850/50 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="font-semibold text-slate-200">{item.title}</div>
                       <div className="text-[11px] text-slate-400 mt-0.5">{item.locationName}</div>
                     </td>
                     <td className="py-3.5 px-4 font-mono text-slate-300">
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">
-                        {item.categoryCode}
-                      </span>
+                      {(() => {
+                        const cfg = getDisasterConfig(item.categoryCode);
+                        return (
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold border ${cfg.bgLight} ${cfg.borderLight} ${cfg.textLight}`}
+                          >
+                            <DisasterIcon categoryCode={item.categoryCode} className="h-3 w-3" />
+                            {cfg.shortLabel}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-3.5 px-4 font-mono">
                       {item.magnitude ? (
