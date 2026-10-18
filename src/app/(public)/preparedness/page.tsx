@@ -6,14 +6,11 @@ import {
   CheckCircle2,
   Circle,
   AlertTriangle,
-  Flame,
   Waves,
   Mountain,
   CloudRain,
   ShieldCheck,
-  FileDown,
   RotateCcw,
-  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -136,20 +133,22 @@ const CHECKLIST_ITEMS: ChecklistItem[] = [
 ];
 
 export default function PreparednessPage() {
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const [checkedIds, setCheckedIds] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("disastra_survival_kit");
+        if (saved) return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  });
   const [activeCategory, setActiveCategory] = useState<string>("all");
   const [activeSopTab, setActiveSopTab] = useState<"gempa" | "tsunami" | "gunung" | "banjir">("gempa");
 
-  // Load from LocalStorage
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("disastra_survival_kit");
-      if (saved) {
-        setCheckedIds(JSON.parse(saved));
-      }
-    } catch {
-      // ignore
-    }
+    document.title = "Kesiapsiagaan & Panduan Mitigasi | DISASTRA AI";
   }, []);
 
   const toggleItem = (id: string) => {
@@ -351,7 +350,7 @@ export default function PreparednessPage() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveSopTab(tab.id as any)}
+                onClick={() => setActiveSopTab(tab.id as "gempa" | "tsunami" | "gunung" | "banjir")}
                 className={cn(
                   "p-3 rounded-xl border flex items-center gap-2.5 transition-all text-xs font-bold",
                   isActive

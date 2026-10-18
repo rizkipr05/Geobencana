@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicNavbar } from "@/components/public/navbar";
 import {
@@ -7,13 +8,14 @@ import {
   Backpack,
   BarChart3,
   ArrowRight,
-  Radio,
-  Zap,
-  Activity,
-  Waves,
-  ShieldAlert,
   Lock,
 } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: "DISASTRA AI - Platform Intelijen & Pemantauan Bencana Indonesia",
+  description:
+    "DISASTRA AI — Platform pemantauan geospasial real-time, simulasi 3D multi-bencana, analisis dampak berbasis Google Gemini AI, dan asisten tanggap darurat mitigasi bencana di Indonesia.",
+};
 
 export default function HomePage() {
   return (

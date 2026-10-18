@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="disastraBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f43f5e" />
+      <stop offset="50%" stop-color="#f97316" />
+      <stop offset="100%" stop-color="#fbbf24" />
+    </linearGradient>
+    <linearGradient id="shieldStroke" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f43f5e" />
+      <stop offset="100%" stop-color="#e11d48" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Icon Base Background -->
+  <rect width="32" height="32" rx="7" fill="#020617" />
+  <rect width="30" height="30" x="1" y="1" rx="6" fill="none" stroke="url(#disastraBorder)" stroke-width="1.5" />
+  
+  <!-- Shield Alert Vector (Lucide ShieldAlert Match) -->
+  <g transform="translate(4, 4)">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="rgba(244, 63, 94, 0.2)" stroke="url(#shieldStroke)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+    <line x1="12" y1="8" x2="12" y2="12" stroke="#ffffff" stroke-width="2" stroke-linecap="round" />
+    <circle cx="12" cy="15.5" r="1" fill="#ffffff" />
+  </g>
+</svg>
+

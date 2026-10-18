@@ -8,8 +8,11 @@ import {
   Globe2,
   Waves,
   Zap,
+  Sun,
 } from "lucide-react";
 import { getDisasterConfig } from "@/lib/disaster-icons";
+import { useTheme } from "@/context/theme-context";
+import { cn } from "@/lib/utils";
 
 export interface DisasterMapItem {
   id: string;
@@ -125,8 +128,9 @@ export default function DisasterMap({
   const faultsLayerRef = useRef<L.LayerGroup | null>(null);
   const baseTilesRef = useRef<{ [key: string]: L.LayerGroup }>({});
   const pickedMarkerRef = useRef<L.Marker | null>(null);
-
-  const [activeBasemap, setActiveBasemap] = useState<"dark" | "satellite">("dark");
+  const { isDark } = useTheme();
+  const [userBasemap, setUserBasemap] = useState<"dark" | "light" | "satellite" | null>(null);
+  const activeBasemap: "dark" | "light" | "satellite" = userBasemap ?? (isDark ? "dark" : "light");
   const [showFaults, setShowFaults] = useState<boolean>(true);
   const [showShakingZones, setShowShakingZones] = useState<boolean>(true);
   const [showLegend, setShowLegend] = useState<boolean>(false);
@@ -177,7 +181,18 @@ export default function DisasterMap({
       );
       const satGroup = L.layerGroup([satBase, satRef]);
 
-      baseTilesRef.current = { dark: darkGroup, satellite: satGroup };
+      // 3. Light Gray Basemap Layer (White/Light Mode)
+      const lightBase = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        { attribution: "Esri Light Gray", maxZoom: 16 }
+      );
+      const lightRef = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+        { maxZoom: 16 }
+      );
+      const lightGroup = L.layerGroup([lightBase, lightRef]);
+
+      baseTilesRef.current = { dark: darkGroup, satellite: satGroup, light: lightGroup };
 
       // Vector Groups
       const faultsGroup = L.layerGroup().addTo(map);
@@ -220,14 +235,24 @@ export default function DisasterMap({
   // Handle Basemap Switch
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !baseTilesRef.current.dark || !baseTilesRef.current.satellite) return;
+    if (
+      !map ||
+      !baseTilesRef.current.dark ||
+      !baseTilesRef.current.satellite ||
+      !baseTilesRef.current.light
+    )
+      return;
+
+    map.removeLayer(baseTilesRef.current.dark);
+    map.removeLayer(baseTilesRef.current.satellite);
+    map.removeLayer(baseTilesRef.current.light);
 
     if (activeBasemap === "dark") {
-      map.removeLayer(baseTilesRef.current.satellite);
       map.addLayer(baseTilesRef.current.dark);
-    } else {
-      map.removeLayer(baseTilesRef.current.dark);
+    } else if (activeBasemap === "satellite") {
       map.addLayer(baseTilesRef.current.satellite);
+    } else {
+      map.addLayer(baseTilesRef.current.light);
     }
   }, [activeBasemap]);
 
@@ -454,31 +479,63 @@ export default function DisasterMap({
   }, [selectedDisaster, showShakingZones]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-slate-950">
+    <div
+      className={cn(
+        "relative w-full h-full overflow-hidden transition-colors duration-200",
+        isDark ? "bg-slate-950" : "bg-slate-100"
+      )}
+    >
       <div ref={mapContainerRef} className="w-full h-full z-10" />
 
       {/* Floating Map Controls & Layer Switcher Bar */}
       <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2">
         {/* Basemap Switcher */}
-        <div className="flex items-center rounded-xl bg-slate-950/95 border border-slate-800 p-1 shadow-xl text-xs font-mono">
+        <div
+          className={cn(
+            "flex items-center rounded-xl p-1 shadow-xl text-xs font-mono border backdrop-blur-md transition-colors",
+            isDark
+              ? "bg-slate-950/95 border-slate-800 text-slate-300"
+              : "bg-white/95 border-slate-200 text-slate-700 shadow-md"
+          )}
+        >
           <button
-            onClick={() => setActiveBasemap("dark")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+            onClick={() => setUserBasemap("dark")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer",
               activeBasemap === "dark"
                 ? "bg-rose-600 text-white font-bold shadow-md"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
+                : isDark
+                  ? "text-slate-400 hover:text-slate-200"
+                  : "text-slate-500 hover:text-slate-900"
+            )}
           >
             <Activity className="h-3.5 w-3.5" />
             <span>Dark GIS</span>
           </button>
           <button
-            onClick={() => setActiveBasemap("satellite")}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+            onClick={() => setUserBasemap("light")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer",
+              activeBasemap === "light"
+                ? "bg-rose-600 text-white font-bold shadow-md"
+                : isDark
+                  ? "text-slate-400 hover:text-slate-200"
+                  : "text-slate-500 hover:text-slate-900"
+            )}
+          >
+            <Sun className="h-3.5 w-3.5" />
+            <span>Light GIS</span>
+          </button>
+          <button
+            onClick={() => setUserBasemap("satellite")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer",
               activeBasemap === "satellite"
                 ? "bg-rose-600 text-white font-bold shadow-md"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
+                : isDark
+                  ? "text-slate-400 hover:text-slate-200"
+                  : "text-slate-500 hover:text-slate-900"
+            )}
           >
             <Globe2 className="h-3.5 w-3.5" />
             <span>Satelit</span>
@@ -488,11 +545,16 @@ export default function DisasterMap({
         {/* Tectonic Faults Toggle */}
         <button
           onClick={() => setShowFaults(!showFaults)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border shadow-xl text-xs font-mono transition-all ${
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border shadow-xl text-xs font-mono transition-all cursor-pointer",
             showFaults
-              ? "bg-slate-900/95 text-rose-300 border-rose-500/40 font-bold"
-              : "bg-slate-950/90 text-slate-500 border-slate-800"
-          }`}
+              ? isDark
+                ? "bg-slate-900/95 text-rose-300 border-rose-500/40 font-bold"
+                : "bg-rose-50 text-rose-700 border-rose-300 font-bold"
+              : isDark
+                ? "bg-slate-950/90 text-slate-500 border-slate-800"
+                : "bg-white/95 text-slate-500 border-slate-200"
+          )}
           title="Tampilkan garis sesar dan patahan lempeng tektonik"
         >
           <Zap className="h-3.5 w-3.5 text-rose-500" />
@@ -502,11 +564,16 @@ export default function DisasterMap({
         {/* Shaking Zones Toggle */}
         <button
           onClick={() => setShowShakingZones(!showShakingZones)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border shadow-xl text-xs font-mono transition-all ${
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border shadow-xl text-xs font-mono transition-all cursor-pointer",
             showShakingZones
-              ? "bg-slate-900/95 text-amber-300 border-amber-500/40 font-bold"
-              : "bg-slate-950/90 text-slate-500 border-slate-800"
-          }`}
+              ? isDark
+                ? "bg-slate-900/95 text-amber-300 border-amber-500/40 font-bold"
+                : "bg-amber-50 text-amber-700 border-amber-300 font-bold"
+              : isDark
+                ? "bg-slate-950/90 text-slate-500 border-slate-800"
+                : "bg-white/95 text-slate-500 border-slate-200"
+          )}
           title="Tampilkan zona getaran gempa MMI (Isoseismal)"
         >
           <Waves className="h-3.5 w-3.5 text-amber-400" />
@@ -515,7 +582,14 @@ export default function DisasterMap({
       </div>
 
       {interactivePick && (
-        <div className="absolute top-16 right-4 z-20 px-3 py-1.5 rounded-lg bg-slate-950/95 border border-rose-500/40 text-[11px] font-mono text-rose-300 shadow-lg">
+        <div
+          className={cn(
+            "absolute top-16 right-4 z-20 px-3 py-1.5 rounded-lg border text-[11px] font-mono shadow-lg",
+            isDark
+              ? "bg-slate-950/95 border-rose-500/40 text-rose-300"
+              : "bg-white/95 border-rose-300 text-rose-600 shadow-md"
+          )}
+        >
           📍 Klik pada peta untuk memilih titik koordinat
         </div>
       )}
@@ -523,12 +597,34 @@ export default function DisasterMap({
       {/* Legend & Telemetry Overlay (Bottom Left) - Collapsible */}
       <div className="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-1.5">
         {showLegend && (
-          <div className="p-3 rounded-xl bg-slate-950/95 border border-slate-800 text-[10px] text-slate-300 font-mono shadow-2xl space-y-2 max-w-xs sm:max-w-none animate-fadeIn">
-            <div className="flex items-center justify-between gap-3 pb-1 border-b border-slate-850">
-              <span className="font-bold text-slate-200 uppercase tracking-wider text-[10px]">Legenda Peta Spasial</span>
+          <div
+            className={cn(
+              "p-3 rounded-xl text-[10px] font-mono shadow-2xl space-y-2 max-w-xs sm:max-w-none animate-fadeIn border",
+              isDark
+                ? "bg-slate-950/95 border-slate-800 text-slate-300"
+                : "bg-white/98 border-slate-200 text-slate-700 shadow-lg"
+            )}
+          >
+            <div
+              className={cn(
+                "flex items-center justify-between gap-3 pb-1 border-b",
+                isDark ? "border-slate-850" : "border-slate-200"
+              )}
+            >
+              <span
+                className={cn(
+                  "font-bold uppercase tracking-wider text-[10px]",
+                  isDark ? "text-slate-200" : "text-slate-800"
+                )}
+              >
+                Legenda Peta Spasial
+              </span>
               <button
                 onClick={() => setShowLegend(false)}
-                className="text-slate-400 hover:text-white p-0.5 rounded"
+                className={cn(
+                  "p-0.5 rounded cursor-pointer",
+                  isDark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900"
+                )}
               >
                 ✕
               </button>
@@ -536,27 +632,32 @@ export default function DisasterMap({
             <div className="flex flex-wrap items-center gap-3">
               <span className="flex items-center gap-1.5">
                 <span className="h-3.5 w-3.5 rounded-full bg-rose-500 flex items-center justify-center text-[9px] text-white">⚡</span>
-                <span className="font-bold text-rose-400">Gempa</span>
+                <span className="font-bold text-rose-500">Gempa</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3.5 w-3.5 rounded-full bg-amber-500 flex items-center justify-center text-[9px] text-white">🔥</span>
-                <span className="font-bold text-amber-400">Kebakaran (Karhutla)</span>
+                <span className="font-bold text-amber-500">Kebakaran (Karhutla)</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3.5 w-3.5 rounded-full bg-orange-600 flex items-center justify-center text-[9px] text-white">🌋</span>
-                <span className="font-bold text-orange-400">Gunung Api</span>
+                <span className="font-bold text-orange-500">Gunung Api</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3.5 w-3.5 rounded-full bg-sky-500 flex items-center justify-center text-[9px] text-white">🌊</span>
-                <span className="font-bold text-sky-400">Banjir/Tsunami</span>
+                <span className="font-bold text-sky-500">Banjir/Tsunami</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3.5 w-3.5 rounded-full bg-purple-500 flex items-center justify-center text-[9px] text-white">🌀</span>
-                <span className="font-bold text-purple-400">Cuaca Ekstrem</span>
+                <span className="font-bold text-purple-500">Cuaca Ekstrem</span>
               </span>
             </div>
 
-            <div className="pt-1.5 border-t border-slate-800 flex items-center gap-3 text-[9px] text-slate-400">
+            <div
+              className={cn(
+                "pt-1.5 border-t flex items-center gap-3 text-[9px]",
+                isDark ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"
+              )}
+            >
               <span className="flex items-center gap-1">
                 <span className="h-0.5 w-4 bg-rose-500 inline-block border-t border-dashed" /> Megathrust Sunda
               </span>
@@ -572,11 +673,15 @@ export default function DisasterMap({
 
         <button
           onClick={() => setShowLegend(!showLegend)}
-          className="px-2.5 py-1.5 rounded-lg bg-slate-950/95 border border-slate-800 text-[11px] font-mono text-slate-300 hover:text-white flex items-center gap-1.5 shadow-lg hover:border-slate-700 transition-colors"
-          title="Tampilkan / Sembunyikan Legenda Simbol Peta"
+          className={cn(
+            "px-2.5 py-1.5 rounded-lg border text-[11px] font-mono shadow-xl transition-all cursor-pointer flex items-center gap-1.5",
+            isDark
+              ? "bg-slate-950/90 hover:bg-slate-900 border-slate-800 text-slate-300 hover:text-white"
+              : "bg-white/95 hover:bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900 shadow-md"
+          )}
         >
-          <span>🗺️</span>
-          <span>{showLegend ? "Tutup Legenda" : "Legenda"}</span>
+          <span>🗺️ Legenda</span>
+          <span className="text-[10px] text-slate-500">{showLegend ? "▲" : "▼"}</span>
         </button>
       </div>
     </div>

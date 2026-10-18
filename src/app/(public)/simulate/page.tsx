@@ -1,19 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   Cpu,
   Layers,
-  AlertTriangle,
   Play,
   RotateCcw,
-  Waves,
   Zap,
   Building2,
   Navigation,
   Activity,
-  Flame,
   FileSpreadsheet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -100,6 +97,10 @@ const PRESETS: Preset[] = [
 ];
 
 export default function SimulatePage() {
+  useEffect(() => {
+    document.title = "3D Disaster Simulator | DISASTRA AI";
+  }, []);
+
   const [magnitude, setMagnitude] = useState<number>(8.8);
   const [depthKm, setDepthKm] = useState<number>(15);
   const [slipMeters, setSlipMeters] = useState<number>(18);
@@ -401,7 +402,7 @@ export default function SimulatePage() {
                     <button
                       key={mech.id}
                       type="button"
-                      onClick={() => setMechanism(mech.id as any)}
+                      onClick={() => setMechanism(mech.id as "SUBDUCTION" | "STRIKE_SLIP" | "NORMAL")}
                       className={cn(
                         "py-2 px-2 rounded-lg text-xs font-semibold text-center transition-all border",
                         mechanism === mech.id

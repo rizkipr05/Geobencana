@@ -69,6 +69,7 @@ export default function AnalyticsPage() {
   }, []);
 
   useEffect(() => {
+    document.title = "Analytics Bencana Indonesia | DISASTRA AI";
     let isMounted = true;
     async function init() {
       try {
