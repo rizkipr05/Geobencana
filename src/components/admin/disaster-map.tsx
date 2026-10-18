@@ -129,6 +129,7 @@ export default function DisasterMap({
   const [activeBasemap, setActiveBasemap] = useState<"dark" | "satellite">("dark");
   const [showFaults, setShowFaults] = useState<boolean>(true);
   const [showShakingZones, setShowShakingZones] = useState<boolean>(true);
+  const [showLegend, setShowLegend] = useState<boolean>(false);
 
   const onSelectRef = useRef(onSelectCoordinate);
   useEffect(() => {
@@ -310,15 +311,15 @@ export default function DisasterMap({
         html: `
           <div style="position:relative;width:${badgeSize}px;height:${badgeSize}px;display:flex;align-items:center;justify-content:center;cursor:pointer;">
             ${
-              isCritical || isSelected
+              isSelected
                 ? `<div class="seismic-shockwave" style="position:absolute;inset:-6px;border-radius:50%;border:2px solid ${markerColor};"></div>`
                 : ""
             }
             <div style="width:${badgeSize}px;height:${badgeSize}px;background:${markerGradient};border-radius:50%;border:${
-              isSelected ? "3px solid #ffffff" : "2px solid rgba(255,255,255,0.92)"
-            };display:flex;align-items:center;justify-content:center;color:white;box-shadow:0 0 ${
-              isSelected ? "18px" : "10px"
-            } ${shadowColor};transition:transform 0.15s ease-out;">
+              isSelected ? "2.5px solid #ffffff" : "1.5px solid rgba(255,255,255,0.85)"
+            };display:flex;align-items:center;justify-content:center;color:white;box-shadow:${
+              isSelected ? `0 0 14px ${shadowColor}` : "0 2px 4px rgba(0,0,0,0.5)"
+            };">
               <div style="width:${iconSize}px;height:${iconSize}px;display:flex;align-items:center;justify-content:center;color:white;">
                 ${catConfig.svgIcon}
               </div>
@@ -459,7 +460,7 @@ export default function DisasterMap({
       {/* Floating Map Controls & Layer Switcher Bar */}
       <div className="absolute top-4 left-4 z-20 flex flex-wrap items-center gap-2">
         {/* Basemap Switcher */}
-        <div className="flex items-center rounded-xl bg-slate-950/90 border border-slate-800 p-1 backdrop-blur-md shadow-xl text-xs font-mono">
+        <div className="flex items-center rounded-xl bg-slate-950/95 border border-slate-800 p-1 shadow-xl text-xs font-mono">
           <button
             onClick={() => setActiveBasemap("dark")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
@@ -487,10 +488,10 @@ export default function DisasterMap({
         {/* Tectonic Faults Toggle */}
         <button
           onClick={() => setShowFaults(!showFaults)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-xl text-xs font-mono transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border shadow-xl text-xs font-mono transition-all ${
             showFaults
-              ? "bg-slate-900/90 text-rose-300 border-rose-500/40 font-bold"
-              : "bg-slate-950/80 text-slate-500 border-slate-800"
+              ? "bg-slate-900/95 text-rose-300 border-rose-500/40 font-bold"
+              : "bg-slate-950/90 text-slate-500 border-slate-800"
           }`}
           title="Tampilkan garis sesar dan patahan lempeng tektonik"
         >
@@ -501,10 +502,10 @@ export default function DisasterMap({
         {/* Shaking Zones Toggle */}
         <button
           onClick={() => setShowShakingZones(!showShakingZones)}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border backdrop-blur-md shadow-xl text-xs font-mono transition-all ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border shadow-xl text-xs font-mono transition-all ${
             showShakingZones
-              ? "bg-slate-900/90 text-amber-300 border-amber-500/40 font-bold"
-              : "bg-slate-950/80 text-slate-500 border-slate-800"
+              ? "bg-slate-900/95 text-amber-300 border-amber-500/40 font-bold"
+              : "bg-slate-950/90 text-slate-500 border-slate-800"
           }`}
           title="Tampilkan zona getaran gempa MMI (Isoseismal)"
         >
@@ -514,47 +515,69 @@ export default function DisasterMap({
       </div>
 
       {interactivePick && (
-        <div className="absolute top-16 right-4 z-20 px-3 py-1.5 rounded-lg bg-slate-950/85 backdrop-blur-md border border-rose-500/40 text-[11px] font-mono text-rose-300 shadow-lg">
+        <div className="absolute top-16 right-4 z-20 px-3 py-1.5 rounded-lg bg-slate-950/95 border border-rose-500/40 text-[11px] font-mono text-rose-300 shadow-lg">
           📍 Klik pada peta untuk memilih titik koordinat
         </div>
       )}
 
-      {/* Legend & Telemetry Overlay (Bottom Left) */}
-      <div className="absolute bottom-4 left-4 z-20 p-3 rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-800 text-[10px] text-slate-300 font-mono shadow-2xl space-y-2 max-w-xs sm:max-w-none">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded-full bg-rose-500 flex items-center justify-center text-[9px] text-white">⚡</span>
-            <span className="font-bold text-rose-400">Gempa</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded-full bg-amber-500 flex items-center justify-center text-[9px] text-white">🔥</span>
-            <span className="font-bold text-amber-400">Kebakaran (Karhutla)</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded-full bg-orange-600 flex items-center justify-center text-[9px] text-white">🌋</span>
-            <span className="font-bold text-orange-400">Gunung Api</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded-full bg-sky-500 flex items-center justify-center text-[9px] text-white">🌊</span>
-            <span className="font-bold text-sky-400">Banjir/Tsunami</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-3.5 w-3.5 rounded-full bg-purple-500 flex items-center justify-center text-[9px] text-white">🌀</span>
-            <span className="font-bold text-purple-400">Cuaca Ekstrem</span>
-          </span>
-        </div>
+      {/* Legend & Telemetry Overlay (Bottom Left) - Collapsible */}
+      <div className="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-1.5">
+        {showLegend && (
+          <div className="p-3 rounded-xl bg-slate-950/95 border border-slate-800 text-[10px] text-slate-300 font-mono shadow-2xl space-y-2 max-w-xs sm:max-w-none animate-fadeIn">
+            <div className="flex items-center justify-between gap-3 pb-1 border-b border-slate-850">
+              <span className="font-bold text-slate-200 uppercase tracking-wider text-[10px]">Legenda Peta Spasial</span>
+              <button
+                onClick={() => setShowLegend(false)}
+                className="text-slate-400 hover:text-white p-0.5 rounded"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="flex items-center gap-1.5">
+                <span className="h-3.5 w-3.5 rounded-full bg-rose-500 flex items-center justify-center text-[9px] text-white">⚡</span>
+                <span className="font-bold text-rose-400">Gempa</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3.5 w-3.5 rounded-full bg-amber-500 flex items-center justify-center text-[9px] text-white">🔥</span>
+                <span className="font-bold text-amber-400">Kebakaran (Karhutla)</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3.5 w-3.5 rounded-full bg-orange-600 flex items-center justify-center text-[9px] text-white">🌋</span>
+                <span className="font-bold text-orange-400">Gunung Api</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3.5 w-3.5 rounded-full bg-sky-500 flex items-center justify-center text-[9px] text-white">🌊</span>
+                <span className="font-bold text-sky-400">Banjir/Tsunami</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3.5 w-3.5 rounded-full bg-purple-500 flex items-center justify-center text-[9px] text-white">🌀</span>
+                <span className="font-bold text-purple-400">Cuaca Ekstrem</span>
+              </span>
+            </div>
 
-        <div className="pt-1.5 border-t border-slate-800 flex items-center gap-3 text-[9px] text-slate-400">
-          <span className="flex items-center gap-1">
-            <span className="h-0.5 w-4 bg-rose-500 inline-block border-t border-dashed" /> Megathrust Sunda
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-0.5 w-4 bg-amber-500 inline-block border-t border-dashed" /> Sesar Semangko
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="h-0.5 w-4 bg-pink-500 inline-block border-t border-dashed" /> Sesar Palu-Koro
-          </span>
-        </div>
+            <div className="pt-1.5 border-t border-slate-800 flex items-center gap-3 text-[9px] text-slate-400">
+              <span className="flex items-center gap-1">
+                <span className="h-0.5 w-4 bg-rose-500 inline-block border-t border-dashed" /> Megathrust Sunda
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-0.5 w-4 bg-amber-500 inline-block border-t border-dashed" /> Sesar Semangko
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-0.5 w-4 bg-pink-500 inline-block border-t border-dashed" /> Sesar Palu-Koro
+              </span>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => setShowLegend(!showLegend)}
+          className="px-2.5 py-1.5 rounded-lg bg-slate-950/95 border border-slate-800 text-[11px] font-mono text-slate-300 hover:text-white flex items-center gap-1.5 shadow-lg hover:border-slate-700 transition-colors"
+          title="Tampilkan / Sembunyikan Legenda Simbol Peta"
+        >
+          <span>🗺️</span>
+          <span>{showLegend ? "Tutup Legenda" : "Legenda"}</span>
+        </button>
       </div>
     </div>
   );

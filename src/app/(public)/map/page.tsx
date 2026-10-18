@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { formatDate } from "@/lib/utils";
 import {
@@ -19,6 +19,8 @@ import {
   Minimize2,
   Bot,
   Activity,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -97,6 +99,8 @@ export default function PublicMapPage() {
   const [criticalAlert, setCriticalAlert] = useState<DisasterItem | null>(null);
   const [isSirenActive, setIsSirenActive] = useState<boolean>(false);
   const [bannerDismissed, setBannerDismissed] = useState<boolean>(false);
+  const [isWarningExpanded, setIsWarningExpanded] = useState<boolean>(false);
+  const [isZonesExpanded, setIsZonesExpanded] = useState<boolean>(false);
 
   // AI Drawer state
   const [aiReport, setAiReport] = useState<AiImpactReport | null>(null);
@@ -139,14 +143,51 @@ export default function PublicMapPage() {
     };
   }, []);
 
-  const filteredDisasters = disasters.filter((d) => {
-    const matchSearch =
-      d.title.toLowerCase().includes(search.toLowerCase()) ||
-      d.locationName.toLowerCase().includes(search.toLowerCase());
-    const matchCat = selectedCategory === "ALL" || d.categoryCode === selectedCategory;
-    const matchMag = (d.magnitude || 0) >= minMagnitude;
-    return matchSearch && matchCat && matchMag;
-  });
+  const filteredDisasters = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return disasters.filter((d) => {
+      const matchSearch =
+        !q ||
+        d.title.toLowerCase().includes(q) ||
+        d.locationName.toLowerCase().includes(q);
+      const matchCat = selectedCategory === "ALL" || d.categoryCode === selectedCategory;
+      const matchMag = (d.magnitude || 0) >= minMagnitude;
+      return matchSearch && matchCat && matchMag;
+    });
+  }, [disasters, search, selectedCategory, minMagnitude]);
+
+  const mapDisasters = useMemo(
+    () =>
+      filteredDisasters.map((d) => ({
+        id: d.id,
+        title: d.title,
+        categoryCode: d.categoryCode,
+        latitude: d.latitude,
+        longitude: d.longitude,
+        magnitude: d.magnitude,
+        depthKm: d.depthKm,
+        severityLevel: d.severityLevel,
+        locationName: d.locationName,
+        metadata: d.metadata,
+      })),
+    [filteredDisasters]
+  );
+
+  const mapSelectedDisaster = useMemo(() => {
+    if (!selectedDisaster) return null;
+    return {
+      id: selectedDisaster.id,
+      title: selectedDisaster.title,
+      categoryCode: selectedDisaster.categoryCode,
+      latitude: selectedDisaster.latitude,
+      longitude: selectedDisaster.longitude,
+      magnitude: selectedDisaster.magnitude,
+      depthKm: selectedDisaster.depthKm,
+      severityLevel: selectedDisaster.severityLevel,
+      locationName: selectedDisaster.locationName,
+      metadata: selectedDisaster.metadata,
+    };
+  }, [selectedDisaster]);
 
   const handleToggleSiren = () => {
     if (isSirenActive) {
@@ -381,153 +422,145 @@ export default function PublicMapPage() {
         {!isSidebarOpen && (
           <button
             onClick={() => setIsSidebarOpen(true)}
-            className="absolute top-4 left-4 z-30 px-3.5 py-2 rounded-xl bg-slate-950/90 border border-slate-800 text-white text-xs font-semibold flex items-center gap-2 backdrop-blur-md shadow-2xl hover:bg-slate-900 transition-all hover:border-rose-500/40"
+            className="absolute top-4 left-4 z-30 px-3 py-1.5 rounded-xl bg-slate-950/95 border border-slate-800 text-white text-xs font-semibold flex items-center gap-2 shadow-xl hover:bg-slate-900 transition-all hover:border-rose-500/40"
           >
             <PanelLeftOpen className="h-4 w-4 text-rose-500" />
-            <span>Buka Feeds ({filteredDisasters.length})</span>
+            <span>Feeds ({filteredDisasters.length})</span>
           </button>
         )}
 
         {/* Floating Fullscreen Toggle Button */}
         <button
           onClick={handleToggleFullscreen}
-          className="absolute top-4 right-4 z-30 p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 text-slate-300 hover:text-white backdrop-blur-md shadow-xl transition-all hover:bg-slate-900"
+          className="absolute top-4 right-4 z-30 p-2 rounded-xl bg-slate-950/95 border border-slate-800 text-slate-300 hover:text-white shadow-xl transition-all hover:bg-slate-900"
           title={isFullscreen ? "Keluar Layar Penuh" : "Mode Layar Penuh"}
         >
           {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
         </button>
 
-        {/* TOP FLOATING VISUAL EARLY WARNING BANNER (BMKG FORMAT) */}
+        {/* TOP FLOATING VISUAL EARLY WARNING BANNER (BMKG FORMAT - SLEEK & COMPACT) */}
         {criticalAlert && !bannerDismissed && (() => {
           const bmkg = getBMKGAlertLevel(criticalAlert);
           const isQuake = (criticalAlert.categoryCode || "EARTHQUAKE").toUpperCase() === "EARTHQUAKE";
 
           return (
             <div
-              className={`absolute top-4 left-1/2 -translate-x-1/2 z-30 w-11/12 max-w-2xl rounded-2xl bg-slate-950/95 border-2 ${bmkg.borderLight} shadow-2xl shadow-rose-950/60 p-4 backdrop-blur-xl animate-bounce-once`}
+              className={`absolute top-3.5 left-1/2 -translate-x-1/2 z-30 w-[92%] sm:w-auto max-w-2xl rounded-xl bg-slate-950/95 border ${bmkg.borderLight} shadow-xl shadow-rose-950/40 transition-all animate-fadeIn`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 flex-1 min-w-0">
-                  {/* BMKG Warning Icon: Segitiga Peringatan Bahaya BMKG dengan Ring Berdenyut */}
-                  <div className="relative flex items-center justify-center shrink-0 mt-0.5">
-                    <span
-                      className="absolute -inset-1 rounded-2xl animate-ping opacity-25"
-                      style={{ backgroundColor: bmkg.color }}
-                    />
-                    <div
-                      className="relative h-12 w-12 rounded-xl flex items-center justify-center border shadow-lg"
-                      style={{
-                        backgroundColor: `${bmkg.color}20`,
-                        borderColor: `${bmkg.color}60`,
-                      }}
-                    >
-                      <BMKGWarningTriangle className="h-7 w-7 filter drop-shadow" color={bmkg.color} />
-                    </div>
+              {/* Compact Ribbon Bar */}
+              <div className="flex items-center justify-between gap-2.5 px-3 py-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="relative flex items-center justify-center shrink-0">
+                    <BMKGWarningTriangle className="h-4 w-4 filter drop-shadow" color={bmkg.color} />
                   </div>
-
-                  <div className="flex-1 min-w-0">
-                    {/* BMKG Official Header Strip */}
-                    <div className="flex flex-wrap items-center gap-1.5 mb-1">
-                      <BMKGLogoBadge />
-                      <span className="px-2 py-0.5 rounded font-mono text-[10px] font-black tracking-wider uppercase bg-slate-900 border border-slate-750 text-white">
-                        PERINGATAN DINI
-                      </span>
-                      <span
-                        className="px-2 py-0.5 rounded font-mono text-[10px] font-black tracking-wider uppercase text-white shadow-sm"
-                        style={{ backgroundColor: bmkg.color }}
-                      >
-                        {bmkg.level}
-                      </span>
-                      {criticalAlert.magnitude ? (
-                        <span className="text-xs font-mono font-black text-rose-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                          M {criticalAlert.magnitude.toFixed(1)}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <h3 className="text-xs sm:text-sm font-extrabold text-white leading-snug">
-                      {criticalAlert.title}
-                    </h3>
-
-                    <p className="text-[11px] text-slate-300 mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono">
-                      {criticalAlert.depthKm !== null && criticalAlert.depthKm !== undefined && (
-                        <span>
-                          Kedalaman: <strong className="text-white">{criticalAlert.depthKm} km</strong>
-                        </span>
-                      )}
-                      <span>&bull;</span>
-                      <span>
-                        Lokasi: <span className="text-slate-200">{criticalAlert.locationName}</span>
-                      </span>
-                      <span>&bull;</span>
-                      <span>
-                        Waktu: <span className="text-slate-400">{formatDate(criticalAlert.occurredAt)}</span>
-                      </span>
-                    </p>
-
-                    {/* Official BMKG Tsunami Status Bar */}
-                    {isQuake && (
-                      <div className="mt-2 flex items-center gap-2">
-                        {bmkg.tsunamiRisk ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-rose-600/30 border border-rose-500 text-rose-300 font-mono text-[10px] font-black uppercase animate-pulse">
-                            <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
-                            {bmkg.tsunamiStatus}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-mono text-[10px] font-bold">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                            Gempa ini TIDAK berpotensi TSUNAMI
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Saran BMKG Official Advisory */}
-                    <p className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg mt-2 leading-relaxed">
-                      📢 {bmkg.advisory}
-                    </p>
-                  </div>
+                  <BMKGLogoBadge />
+                  <span
+                    className="px-1.5 py-0.5 rounded font-mono text-[9px] font-black uppercase text-white shrink-0"
+                    style={{ backgroundColor: bmkg.color }}
+                  >
+                    {bmkg.level}
+                  </span>
+                  {criticalAlert.magnitude ? (
+                    <span className="text-[11px] font-mono font-black text-rose-400 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 shrink-0">
+                      M {criticalAlert.magnitude.toFixed(1)}
+                    </span>
+                  ) : null}
+                  <span className="text-white font-bold truncate text-[11px] max-w-[120px] sm:max-w-xs">
+                    {criticalAlert.title}
+                  </span>
                 </div>
 
-                <button
-                  onClick={() => setBannerDismissed(true)}
-                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-900 cursor-pointer"
-                  title="Tutup banner peringatan"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Tsunami Status Badge */}
+                  {isQuake && (
+                    <span
+                      className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono text-[9.5px] font-bold ${
+                        bmkg.tsunamiRisk
+                          ? "bg-rose-600/30 border border-rose-500 text-rose-300 animate-pulse"
+                          : "bg-emerald-950/80 border border-emerald-500/40 text-emerald-400"
+                      }`}
+                    >
+                      {bmkg.tsunamiRisk ? "🌊 Potensi Tsunami" : "✓ Tidak Tsunami"}
+                    </span>
+                  )}
+
+                  {/* Focus Map Button */}
+                  <button
+                    onClick={() => setSelectedDisaster(criticalAlert)}
+                    className="p-1 sm:px-2 sm:py-1 rounded-md bg-rose-600/90 hover:bg-rose-500 text-white text-[10.5px] font-bold flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                    title="Fokus Episentrum"
+                  >
+                    <Eye className="h-3 w-3" />
+                    <span className="hidden sm:inline">Fokus</span>
+                  </button>
+
+                  {/* Siren Button */}
+                  <button
+                    onClick={handleToggleSiren}
+                    className={`p-1 sm:px-2 sm:py-1 rounded-md text-[10.5px] font-mono font-bold flex items-center gap-1 border transition-colors cursor-pointer ${
+                      isSirenActive
+                        ? "bg-rose-700 text-white border-rose-500 animate-pulse"
+                        : "bg-slate-900 hover:bg-slate-850 text-rose-400 border-rose-500/30"
+                    }`}
+                    title={isSirenActive ? "Matikan Sirine" : "Bunyikan Sirine"}
+                  >
+                    <Volume2 className="h-3 w-3" />
+                    <span className="hidden md:inline">{isSirenActive ? "Stop" : "Sirine"}</span>
+                  </button>
+
+                  {/* Detail Toggle */}
+                  <button
+                    onClick={() => setIsWarningExpanded(!isWarningExpanded)}
+                    className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-900 border border-slate-800 transition-colors cursor-pointer"
+                    title={isWarningExpanded ? "Sembunyikan Detail" : "Lihat Detail Peringatan"}
+                  >
+                    {isWarningExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
+
+                  {/* Dismiss Button */}
+                  <button
+                    onClick={() => setBannerDismissed(true)}
+                    className="p-1 rounded-md text-slate-500 hover:text-white hover:bg-slate-900 transition-colors cursor-pointer"
+                    title="Tutup banner"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
 
-              {/* Quick Emergency Actions inside Banner */}
-              <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setSelectedDisaster(criticalAlert)}
-                  className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-rose-600/30 cursor-pointer"
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  <span>Fokus Episentrum &amp; Radius</span>
-                </button>
+              {/* Expandable Details Drawer */}
+              {isWarningExpanded && (
+                <div className="px-3 pb-3 pt-2 border-t border-slate-800/80 space-y-2 text-xs font-mono">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-300">
+                    {criticalAlert.depthKm !== null && criticalAlert.depthKm !== undefined && (
+                      <span>
+                        Kedalaman: <strong className="text-white">{criticalAlert.depthKm} km</strong>
+                      </span>
+                    )}
+                    <span>
+                      Lokasi: <span className="text-slate-200">{criticalAlert.locationName}</span>
+                    </span>
+                    <span>
+                      Waktu: <span className="text-slate-400">{formatDate(criticalAlert.occurredAt)}</span>
+                    </span>
+                  </div>
 
-                <button
-                  onClick={() => handleRunAiAnalysis(criticalAlert)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-750 text-slate-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-                  <span>Analisis Dampak AI</span>
-                </button>
+                  {/* Advisory Notice */}
+                  <div className="text-[10px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 rounded-lg leading-relaxed font-sans">
+                    📢 {bmkg.advisory}
+                  </div>
 
-                <button
-                  onClick={handleToggleSiren}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 border cursor-pointer ${
-                    isSirenActive
-                      ? "bg-rose-700 text-white border-rose-500 animate-pulse"
-                      : "bg-slate-900 hover:bg-slate-850 text-rose-400 border-rose-500/30"
-                  }`}
-                >
-                  <Volume2 className="h-3.5 w-3.5" />
-                  <span>{isSirenActive ? "Matikan Sirine" : "Bunyikan Sirine"}</span>
-                </button>
-              </div>
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      onClick={() => handleRunAiAnalysis(criticalAlert)}
+                      className="px-2.5 py-1 rounded-md bg-slate-900 hover:bg-slate-850 border border-slate-750 text-slate-200 text-[10.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Sparkles className="h-3 w-3 text-amber-400" />
+                      <span>Analisis AI</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -535,34 +568,8 @@ export default function PublicMapPage() {
         {/* 100% Full Container Disaster Map Component */}
         <div className="w-full h-full flex-1 relative">
           <DisasterMap
-            disasters={filteredDisasters.map((d) => ({
-              id: d.id,
-              title: d.title,
-              categoryCode: d.categoryCode,
-              latitude: d.latitude,
-              longitude: d.longitude,
-              magnitude: d.magnitude,
-              depthKm: d.depthKm,
-              severityLevel: d.severityLevel,
-              locationName: d.locationName,
-              metadata: d.metadata,
-            }))}
-            selectedDisaster={
-              selectedDisaster
-                ? {
-                    id: selectedDisaster.id,
-                    title: selectedDisaster.title,
-                    categoryCode: selectedDisaster.categoryCode,
-                    latitude: selectedDisaster.latitude,
-                    longitude: selectedDisaster.longitude,
-                    magnitude: selectedDisaster.magnitude,
-                    depthKm: selectedDisaster.depthKm,
-                    severityLevel: selectedDisaster.severityLevel,
-                    locationName: selectedDisaster.locationName,
-                    metadata: selectedDisaster.metadata,
-                  }
-                : null
-            }
+            disasters={mapDisasters}
+            selectedDisaster={mapSelectedDisaster}
             onSelectDisaster={(d) => {
               const fullItem = disasters.find((item) => item.id === d.id);
               if (fullItem) setSelectedDisaster(fullItem);
@@ -570,175 +577,158 @@ export default function PublicMapPage() {
           />
         </div>
 
-        {/* Selected Disaster Floating Card (Rich Complete Warning) */}
+        {/* Selected Disaster Floating Card (Compact & Non-Intrusive) */}
         {selectedDisaster && (() => {
           const selCfg = getDisasterConfig(selectedDisaster.categoryCode);
           const isQuake = (selectedDisaster.categoryCode || "EARTHQUAKE").toUpperCase() === "EARTHQUAKE";
 
           return (
-            <div className="absolute top-16 right-4 z-20 w-80 sm:w-96 rounded-2xl bg-slate-950/95 border border-slate-800 backdrop-blur-xl p-5 shadow-2xl space-y-3.5 animate-fadeIn">
+            <div className="absolute top-14 right-4 z-20 w-72 sm:w-80 rounded-xl bg-slate-950/95 border border-slate-800 p-3.5 shadow-xl space-y-2.5 animate-fadeIn">
+              {/* Header */}
               <div className="flex items-start justify-between gap-2">
-                <div className="flex items-start gap-2.5">
-                  <div className={`p-2 rounded-xl ${selCfg.bgLight} ${selCfg.borderLight} border ${selCfg.textLight} mt-0.5 shadow-sm`}>
-                    <DisasterIcon categoryCode={selectedDisaster.categoryCode} className="h-5 w-5" />
+                <div className="flex items-start gap-2 min-w-0">
+                  <div className={`p-1.5 rounded-lg ${selCfg.bgLight} ${selCfg.borderLight} border ${selCfg.textLight} shrink-0 mt-0.5`}>
+                    <DisasterIcon categoryCode={selectedDisaster.categoryCode} className="h-4 w-4" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${selCfg.bgLight} ${selCfg.textLight} border ${selCfg.borderLight} font-bold uppercase`}>
-                        {selCfg.name}
+                      <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded ${selCfg.bgLight} ${selCfg.textLight} border ${selCfg.borderLight} font-bold uppercase`}>
+                        {selCfg.shortLabel}
                       </span>
                       {((selectedDisaster.magnitude || 0) >= 6.5 || selectedDisaster.severityLevel === "CRITICAL") && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold uppercase animate-pulse">
-                          SIAGA KEDARURATAN
+                        <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold uppercase animate-pulse">
+                          SIAGA
                         </span>
                       )}
                     </div>
-                    <h3 className="text-sm font-black text-white mt-1.5 leading-snug">
+                    <h3 className="text-xs font-bold text-white mt-0.5 truncate leading-snug">
                       {selectedDisaster.title}
                     </h3>
-                    <p className="text-xs text-slate-400 mt-0.5">{selectedDisaster.locationName}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{selectedDisaster.locationName}</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setSelectedDisaster(null)}
-                  className="p-1 rounded-lg text-slate-500 hover:text-white"
+                  className="p-1 rounded text-slate-500 hover:text-white shrink-0 cursor-pointer"
+                  title="Tutup info bencana"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </div>
 
-              {/* Telemetry Metrics */}
+              {/* Metrics Row */}
               {isQuake ? (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-2 gap-2 text-center text-xs font-mono">
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-850">
-                      <span className="text-[10px] text-slate-500 block">Magnitudo</span>
-                      <span className="text-base font-black text-rose-400">
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-1.5 text-center text-xs font-mono">
+                    <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-850">
+                      <span className="text-[9px] text-slate-500 block">Magnitudo</span>
+                      <span className="text-sm font-black text-rose-400">
                         {selectedDisaster.magnitude ? `M ${selectedDisaster.magnitude.toFixed(1)}` : "-"}
                       </span>
                     </div>
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-850">
-                      <span className="text-[10px] text-slate-500 block">Kedalaman</span>
-                      <span className="text-base font-black text-slate-200">
+                    <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-850">
+                      <span className="text-[9px] text-slate-500 block">Kedalaman</span>
+                      <span className="text-sm font-black text-slate-200">
                         {selectedDisaster.depthKm ? `${selectedDisaster.depthKm} km` : "-"}
                       </span>
                     </div>
                   </div>
 
-                  {/* Official BMKG Tsunami Status Indicator */}
+                  {/* Tsunami Status Badge */}
                   <div>
                     {selectedDisaster.metadata?.tsunami === 1 || selectedDisaster.title.toLowerCase().includes("tsunami") ? (
-                      <div className="px-2.5 py-1.5 rounded-lg bg-rose-600/30 border border-rose-500 text-rose-300 font-mono text-[11px] font-black flex items-center gap-2 animate-pulse">
-                        <BMKGWarningTriangle className="h-4 w-4 shrink-0" color="#ef4444" />
+                      <div className="px-2 py-1 rounded bg-rose-600/30 border border-rose-500 text-rose-300 font-mono text-[10px] font-bold flex items-center gap-1.5 animate-pulse">
+                        <BMKGWarningTriangle className="h-3.5 w-3.5 shrink-0" color="#ef4444" />
                         <span>PERINGATAN: Berpotensi Tsunami</span>
                       </div>
                     ) : (
-                      <div className="px-2.5 py-1 rounded-lg bg-emerald-950/70 border border-emerald-500/30 text-emerald-400 font-mono text-[10.5px] font-semibold flex items-center gap-1.5">
+                      <div className="px-2 py-0.5 rounded bg-emerald-950/70 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] font-semibold flex items-center gap-1.5">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
-                        <span>Gempa ini tidak berpotensi TSUNAMI</span>
+                        <span>Tidak berpotensi Tsunami</span>
                       </div>
                     )}
                   </div>
 
-                  <div className="text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg font-mono">
-                    Saran BMKG: Hati-hati terhadap gempabumi susulan yang mungkin terjadi.
+                  {/* Collapsible MMI Shaking Zones Toggle */}
+                  <div className="pt-0.5">
+                    <button
+                      onClick={() => setIsZonesExpanded(!isZonesExpanded)}
+                      className="text-[10px] text-slate-400 hover:text-slate-200 font-mono flex items-center justify-between w-full px-1 cursor-pointer"
+                    >
+                      <span>Estimasi Radius MMI</span>
+                      <span>{isZonesExpanded ? "▴ Tutup" : "▾ Buka"}</span>
+                    </button>
+                    {isZonesExpanded && (
+                      <div className="p-2 mt-1 rounded-lg bg-slate-900/90 border border-slate-800 text-[10px] space-y-1 font-mono">
+                        <div className="flex justify-between text-rose-400">
+                          <span>Zona Episentrum (MMI VII-IX):</span>
+                          <span>~{Math.round(Math.pow(10, 0.42 * (selectedDisaster.magnitude || 5)) * 0.9)} km</span>
+                        </div>
+                        <div className="flex justify-between text-amber-400">
+                          <span>Zona Kerusakan Sedang:</span>
+                          <span>~{Math.round(Math.pow(10, 0.42 * (selectedDisaster.magnitude || 5)) * 2.5)} km</span>
+                        </div>
+                        <div className="flex justify-between text-yellow-400">
+                          <span>Zona Getaran Terasa:</span>
+                          <span>~{Math.round(Math.pow(10, 0.42 * (selectedDisaster.magnitude || 5)) * 5.4)} km</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2 text-center text-xs font-mono">
-                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-850">
-                    <span className="text-[10px] text-slate-500 block">Tingkat Bahaya</span>
-                    <span className={`text-sm font-black ${selCfg.textLight}`}>
+                <div className="grid grid-cols-2 gap-1.5 text-center text-xs font-mono">
+                  <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-850">
+                    <span className="text-[9px] text-slate-500 block">Tingkat Bahaya</span>
+                    <span className={`text-xs font-black ${selCfg.textLight}`}>
                       {selectedDisaster.severityLevel}
                     </span>
                   </div>
-                  <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-850">
-                    <span className="text-[10px] text-slate-500 block">Radius Pantau</span>
-                    <span className="text-sm font-black text-slate-200">
+                  <div className="p-1.5 rounded-lg bg-slate-900 border border-slate-850">
+                    <span className="text-[9px] text-slate-500 block">Radius Pantau</span>
+                    <span className="text-xs font-black text-slate-200">
                       ~15-25 km
                     </span>
                   </div>
                 </div>
               )}
 
-              {/* Dynamic Disaster Advisory / Zone Box */}
-              {isQuake ? (
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] space-y-1 font-mono">
-                  <div className="flex justify-between text-rose-400 font-bold">
-                    <span>🔴 Zona Episentrum (MMI VII-IX):</span>
-                    <span>~{Math.round(Math.pow(10, 0.42 * (selectedDisaster.magnitude || 5)) * 0.9)} km</span>
-                  </div>
-                  <div className="flex justify-between text-amber-400">
-                    <span>🟠 Zona Kerusakan Sedang:</span>
-                    <span>~{Math.round(Math.pow(10, 0.42 * (selectedDisaster.magnitude || 5)) * 2.5)} km</span>
-                  </div>
-                  <div className="flex justify-between text-yellow-400">
-                    <span>🟡 Zona Getaran Terasa Luas:</span>
-                    <span>~{Math.round(Math.pow(10, 0.42 * (selectedDisaster.magnitude || 5)) * 5.4)} km</span>
-                  </div>
-                </div>
-              ) : selectedDisaster.categoryCode === "WILDFIRE" ? (
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] space-y-1.5 font-mono">
-                  <div className="flex justify-between text-amber-400 font-bold">
-                    <span>🔥 Status Karhutla:</span>
-                    <span>Titik Panas Aktif</span>
-                  </div>
-                  <div className="flex justify-between text-slate-300">
-                    <span>💨 Risiko Asap (ISPU):</span>
-                    <span className="text-orange-400">Sedang - Tidak Sehat</span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-850">
-                    Sensor satelit NASA MODIS/VIIRS mendeteksi anomali termal permukaan.
-                  </div>
-                </div>
-              ) : (
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] space-y-1 font-mono">
-                  <div className="flex justify-between text-sky-400 font-bold">
-                    <span>⚠️ Zona Kesiapsiagaan:</span>
-                    <span>Radius Evakuasi ~15 km</span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-850">
-                    Hindari aliran lahar / luapan air sungai terdekat dan pantau rilis BPBD.
-                  </div>
-                </div>
-              )}
-
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                onClick={() => handleRunAiAnalysis(selectedDisaster)}
-                disabled={aiLoading}
-                className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-rose-600 to-orange-500 hover:from-rose-500 hover:to-orange-400 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-600/20 cursor-pointer disabled:opacity-50"
-              >
-                {aiLoading ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5" />
-                )}
-                <span>{aiLoading ? "Menganalisis..." : "AI Impact Analyzer"}</span>
-              </button>
-              <Link
-                href={`/simulate?mag=${selectedDisaster.magnitude || 6.5}&lat=${selectedDisaster.latitude}&lng=${selectedDisaster.longitude}`}
-                className="py-2 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-750 text-slate-200 font-semibold text-xs flex items-center gap-1.5"
-              >
-                <Compass className="h-3.5 w-3.5 text-sky-400" />
-                <span>Simulasi 3D</span>
-              </Link>
-              <Link
-                href="/assistant"
-                className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-750 text-slate-200"
-                title="Tanya AI Evakuasi"
-              >
-                <Bot className="h-4 w-4 text-emerald-400" />
-              </Link>
+              {/* Action Buttons Row */}
+              <div className="flex items-center gap-1.5 pt-1 border-t border-slate-850">
+                <button
+                  onClick={() => handleRunAiAnalysis(selectedDisaster)}
+                  disabled={aiLoading}
+                  className="flex-1 py-1.5 px-2.5 rounded-lg bg-gradient-to-r from-rose-600 to-orange-500 hover:from-rose-500 hover:to-orange-400 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {aiLoading ? (
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  <span>{aiLoading ? "Analisis..." : "AI Dampak"}</span>
+                </button>
+                <Link
+                  href={`/simulate?mag=${selectedDisaster.magnitude || 6.5}&lat=${selectedDisaster.latitude}&lng=${selectedDisaster.longitude}`}
+                  className="py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-semibold text-[11px] flex items-center gap-1"
+                >
+                  <Compass className="h-3 w-3 text-sky-400" />
+                  <span>3D Sim</span>
+                </Link>
+                <Link
+                  href="/assistant"
+                  className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200"
+                  title="Tanya AI Evakuasi"
+                >
+                  <Bot className="h-3.5 w-3.5 text-emerald-400" />
+                </Link>
+              </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
         {/* AI Report Floating Overlay Drawer */}
         {aiReport && (
-          <div className="absolute inset-y-0 right-0 z-30 w-full sm:w-[460px] bg-slate-950/95 border-l border-slate-800 backdrop-blur-xl p-6 overflow-y-auto shadow-2xl space-y-4">
+          <div className="absolute inset-y-0 right-0 z-30 w-full sm:w-[460px] bg-slate-950/95 border-l border-slate-800 p-6 overflow-y-auto shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400">

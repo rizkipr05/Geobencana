@@ -1,18 +1,14 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   BarChart3,
   TrendingUp,
   Activity,
   Layers,
   Radio,
-  MapPin,
-  Waves,
   RefreshCw,
   Globe2,
-  Calendar,
-  AlertOctagon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -54,7 +50,7 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchAnalytics = async () => {
+  const fetchAnalytics = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -70,14 +66,37 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchAnalytics();
+    let isMounted = true;
+    async function init() {
+      try {
+        const res = await fetch("/api/analytics");
+        const json = await res.json();
+        if (isMounted && json.success && json.stats) {
+          setData(json.stats);
+        } else if (isMounted) {
+          throw new Error(json.error || "Gagal memuat analitik");
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : "Terjadi kesalahan koneksi");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+    init();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+    <div className="w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 pb-16 bg-slate-950 text-slate-100">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>

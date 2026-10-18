@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     // Retrieve active AI prompt configuration
     let systemPrompt =
       "Anda adalah AI Disaster Impact Analyzer pada platform DISASTRA. Analisis estimasi kerusakan, fasilitas vital terdampak (RS, jalan, jembatan, bandara, listrik), serta radius zona bahaya berdasarkan data gempa/bencana yang diberikan secara objektif dan akurat.";
-    let modelName = "gemini-2.5-flash";
+    let modelName = "gemini-3.8-flash";
     let temperature = 0.4;
 
     if (db) {
@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       });
       if (config) {
         systemPrompt = config.systemPrompt;
-        modelName = config.modelName || "gemini-2.5-flash";
+        modelName = config.modelName || "gemini-3.8-flash";
         temperature = config.temperature || 0.4;
       }
     }
@@ -81,14 +81,26 @@ Tolong berikan respon terstruktur JSON dengan format persis:
 }
 `;
 
-      const response = await ai.models.generateContent({
-        model: modelName.includes("2.5") ? modelName : "gemini-2.5-flash",
-        contents: promptText,
-        config: {
-          temperature,
-          responseMimeType: "application/json",
-        },
-      });
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: modelName.includes("3.8") ? modelName : "gemini-3.8-flash",
+          contents: promptText,
+          config: {
+            temperature,
+            responseMimeType: "application/json",
+          },
+        });
+      } catch {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: promptText,
+          config: {
+            temperature,
+            responseMimeType: "application/json",
+          },
+        });
+      }
 
       const rawText = response.text || "{}";
       const analysisResult = JSON.parse(rawText);
