@@ -22,7 +22,7 @@ export function PublicShell({ children }: { children: React.ReactNode }) {
       <PublicNavbar />
       <main
         className={`flex-1 min-w-0 flex flex-col h-[calc(100dvh-4rem)] ${
-          isFixedLayout ? "overflow-hidden" : "overflow-y-auto"
+          isFixedLayout ? "overflow-hidden" : "overflow-y-auto no-scrollbar"
         }`}
       >
         {children}

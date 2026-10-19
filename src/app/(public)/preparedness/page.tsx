@@ -180,7 +180,7 @@ export default function PreparednessPage() {
       : CHECKLIST_ITEMS.filter((i) => i.category === activeCategory);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full">
+    <div className="flex-1 bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full">
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
@@ -252,7 +252,7 @@ export default function PreparednessPage() {
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border",
+                  "px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors border",
                   activeCategory === cat.id
                     ? "bg-rose-600/20 text-rose-300 border-rose-500/40"
                     : "bg-slate-900/60 text-slate-400 border-slate-800 hover:text-slate-200"

@@ -43,7 +43,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="id"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${geistSans.variable} ${geistMono.variable} antialiased dark`}
       suppressHydrationWarning
     >
       <head>
@@ -66,7 +66,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col transition-colors duration-200">
+      <body className="min-h-screen flex flex-col transition-colors duration-200">
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

@@ -24,8 +24,22 @@
   --font-mono: var(--font-geist-mono);
 }
 
-html {
-  scrollbar-gutter: stable;
+/* Sembunyikan scrollbar di semua browser tapi tetap bisa di-scroll */
+html,
+body,
+main,
+.no-scrollbar {
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none !important; /* IE & Edge */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+main::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important; /* Chrome, Safari, Opera */
+  width: 0 !important;
+  height: 0 !important;
 }
 
 body {
