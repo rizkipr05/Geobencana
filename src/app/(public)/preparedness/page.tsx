@@ -236,7 +236,7 @@ export default function PreparednessPage() {
       </div>
 
       {/* Section 1: Interactive Checklist */}
-      <div className="mb-12">
+      <div className="mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
           {/* Category Tabs */}
           <div className="flex flex-wrap items-center gap-1.5">
@@ -252,9 +252,9 @@ export default function PreparednessPage() {
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                  "px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors border",
                   activeCategory === cat.id
-                    ? "bg-rose-600/20 text-rose-300 border-rose-500/40 font-semibold"
+                    ? "bg-rose-600/20 text-rose-300 border-rose-500/40"
                     : "bg-slate-900/60 text-slate-400 border-slate-800 hover:text-slate-200"
                 )}
               >

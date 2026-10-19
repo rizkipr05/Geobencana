@@ -109,18 +109,27 @@ export default function SimulatePage() {
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [activePreset, setActivePreset] = useState<string>("Megathrust Selat Sunda");
 
-  // Physics & Impact Calculations
-  const isTsunamiPotential = magnitude >= 7.0 && depthKm <= 50 && (mechanism === "SUBDUCTION" || disasterType === "TSUNAMI");
-  const energyJoules = Math.pow(10, 4.8 + 1.5 * magnitude);
-  const megatonsTNT = energyJoules / 4.184e15;
-  const pgaEstimated = Math.min(1.8, ((Math.pow(10, 0.3 * magnitude) / Math.sqrt(depthKm * 20)) * 0.15)).toFixed(2);
-  
+  // Physics & Impact Calculations matching Simulator 3D Bencana
+  const isTsunamiPotential =
+    (mechanism === "SUBDUCTION" || disasterType === "TSUNAMI") && depthKm < 70 && magnitude >= 6.5;
+  const energyMegatons = Math.pow(10, 1.5 * magnitude + 4.8) / 4.184e15;
+  const energyJoules = energyMegatons * 4.184e15;
+  const megatonsTNT = energyMegatons;
+  const pgaCalculated = Math.min(1.5, Math.pow(10, 0.5 * magnitude - 2.2) / (depthKm + 10));
+  const pgaEstimated = pgaCalculated.toFixed(2);
+  const tsunamiHeight =
+    (mechanism === "SUBDUCTION" || disasterType === "TSUNAMI") && depthKm < 70
+      ? slipMeters * 0.4 * (magnitude / 8) * 0.25
+      : 0;
+  const tsunamiEtaMins =
+    tsunamiHeight > 0 ? (150 / (Math.sqrt(9.8 * 3000) * 3.6)) * 60 : null;
+
   // Cascade damage estimation
-  const bridgeRisk = Math.min(96, Math.round(magnitude * 10.5 - depthKm * 0.2));
-  const gridBlackout = Math.min(99, Math.round(magnitude * 11.2 - depthKm * 0.15));
-  const hospitalOverload = Math.min(98, Math.round(magnitude * 10.8));
-  const estimatedWaveHeight = isTsunamiPotential ? (slipMeters * 0.75 + (magnitude - 7) * 4.2).toFixed(1) : "0";
-  const estimatedEtaMins = isTsunamiPotential ? Math.max(12, Math.round(depthKm * 0.8 + 14)) : 0;
+  const bridgeRisk = Math.min(100, Math.round(pgaCalculated * 75));
+  const gridBlackout = Math.min(100, Math.round(pgaCalculated * 82));
+  const hospitalOverload = Math.min(100, Math.round(pgaCalculated * 88));
+  const estimatedWaveHeight = tsunamiHeight > 0 ? tsunamiHeight.toFixed(1) : "0";
+  const estimatedEtaMins = tsunamiEtaMins !== null ? tsunamiEtaMins.toFixed(1) : "—";
 
   const handleApplyPreset = (p: Preset) => {
     setActivePreset(p.name);
@@ -131,9 +140,8 @@ export default function SimulatePage() {
     setDisasterType(p.disasterType);
   };
 
-  const triggerRunSimulation = () => {
-    setIsSimulating(true);
-    setTimeout(() => setIsSimulating(false), 3500);
+  const toggleSimulation = () => {
+    setIsSimulating((prev) => !prev);
   };
 
   const handleExportJSON = () => {
@@ -188,17 +196,16 @@ export default function SimulatePage() {
 
         <div className="flex items-center gap-3">
           <button
-            onClick={triggerRunSimulation}
-            disabled={isSimulating}
+            onClick={toggleSimulation}
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs tracking-wider uppercase transition-all shadow-lg",
               isSimulating
-                ? "bg-rose-700 text-slate-200 cursor-not-allowed"
+                ? "bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30"
                 : "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 hover:scale-[1.02]"
             )}
           >
             <Play className={cn("h-4 w-4", isSimulating && "animate-spin")} />
-            <span>{isSimulating ? "Simulasi Berjalan..." : "Jalankan Simulasi"}</span>
+            <span>{isSimulating ? "Jeda Simulasi" : "Jalankan Simulasi"}</span>
           </button>
 
           <button
@@ -242,7 +249,7 @@ export default function SimulatePage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: 3D Canvas & Physics Metrics (7 cols) */}
         <div className="lg:col-span-7 flex flex-col gap-6">
-          <div className="h-[540px]">
+          <div className="h-[560px]">
             <ThreeEarthquakeCanvas
               magnitude={magnitude}
               depthKm={depthKm}
@@ -252,6 +259,7 @@ export default function SimulatePage() {
               mechanism={mechanism}
               disasterType={disasterType}
               onDisasterTypeChange={setDisasterType}
+              onSimulatingChange={setIsSimulating}
             />
           </div>
 
@@ -260,7 +268,7 @@ export default function SimulatePage() {
             <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
               <span className="text-[10px] font-mono text-slate-400 uppercase">Energi Terlepas</span>
               <p className="text-base font-extrabold text-white mt-0.5 font-mono">
-                {megatonsTNT.toFixed(1)} MT
+                {energyMegatons >= 1 ? `${energyMegatons.toFixed(1)} MT` : `${(energyMegatons * 1000).toFixed(0)} kt`}
               </p>
               <span className="text-[10px] text-slate-500">Eqv. Trinitrotoluena</span>
             </div>
@@ -268,7 +276,7 @@ export default function SimulatePage() {
             <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
               <span className="text-[10px] font-mono text-slate-400 uppercase">Estimasi PGA</span>
               <p className="text-base font-extrabold text-amber-400 mt-0.5 font-mono">
-                {pgaEstimated} g
+                {pgaCalculated.toFixed(2)} g
               </p>
               <span className="text-[10px] text-slate-500">Percepatan Tanah</span>
             </div>

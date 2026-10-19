@@ -5,23 +5,19 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   Camera,
-  Layers,
-  Building2,
-  Waves,
-  Zap,
-  Activity,
-  Flame,
+  Play,
+  RotateCcw,
+  Sun,
+  Moon,
   Volume2,
   VolumeX,
-  Navigation,
-  Sun,
-  Sunset,
-  Moon,
-  Droplets,
-  Mountain,
-  Eye,
-  Radio,
+  Activity,
+  Maximize2,
+  Minimize2,
+  Layers,
+  AlertTriangle,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   playEarthquakeRumble,
   playVolcanoBlast,
@@ -32,20 +28,7 @@ import {
 } from "@/lib/emergency-siren";
 
 export type DisasterMode = "EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION";
-export type TimeOfDay = "DAY" | "DUSK" | "NIGHT";
-export type CameraPreset = "orbit" | "city" | "coast" | "volcano" | "fault";
-
-export interface BuildingEntity {
-  group: THREE.Group;
-  podium: THREE.Group;
-  upperSection: THREE.Group;
-  rubbleGroup: THREE.Group;
-  initY: number;
-  height: number;
-  collapseProgress: number;
-  collapseThreshold: number;
-  tiltDir: number;
-}
+export type CameraPreset = "orbit" | "city" | "coast" | "crater" | "fault";
 
 interface SimulationParams {
   magnitude: number;
@@ -56,7 +39,32 @@ interface SimulationParams {
   mechanism?: "SUBDUCTION" | "STRIKE_SLIP" | "NORMAL";
   disasterType?: DisasterMode;
   onDisasterTypeChange?: (mode: DisasterMode) => void;
+  onSimulatingChange?: (running: boolean) => void;
 }
+
+// Camera presets calibrated for the strait, volcanic island, and mainland bridge
+const CAMERA_PRESETS: Record<CameraPreset, [[number, number, number], [number, number, number]]> = {
+  orbit: [
+    [26, 25, 28],
+    [0, 2, 0],
+  ],
+  city: [
+    [-6, 9, 14],
+    [-12, 3, 0],
+  ],
+  coast: [
+    [-1, 6, 13],
+    [6, 2, 3],
+  ],
+  crater: [
+    [17, 9, 8],
+    [13, 5, 0],
+  ],
+  fault: [
+    [-12, -2, 22],
+    [-12, -1, 0],
+  ],
+};
 
 export function ThreeEarthquakeCanvas({
   magnitude,
@@ -67,1667 +75,1098 @@ export function ThreeEarthquakeCanvas({
   mechanism = "SUBDUCTION",
   disasterType = "EARTHQUAKE",
   onDisasterTypeChange,
+  onSimulatingChange,
 }: SimulationParams) {
   const mountRef = useRef<HTMLDivElement>(null);
   const seismoCanvasRef = useRef<HTMLCanvasElement>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
-  // States
+  // Local state
   const [activeDisaster, setActiveDisaster] = useState<DisasterMode>(disasterType);
-  const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("DUSK");
-  const [cameraView, setCameraView] = useState<CameraPreset>("orbit");
+  const [cameraView, setCameraView] = useState<CameraPreset>("coast");
+  const [isNight, setIsNight] = useState<boolean>(false);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [warningBanner, setWarningBanner] = useState<string>("");
+  const [pgaDisplay, setPgaDisplay] = useState<string>("0.00");
+  const [simTime, setSimTime] = useState<number>(0);
 
-  // Sync internal disaster state with prop
+  // Sync internal disaster type with prop
   useEffect(() => {
     if (disasterType) {
       setActiveDisaster(disasterType);
     }
   }, [disasterType]);
 
-  const handleDisasterSelect = (mode: DisasterMode) => {
+  // Sync camera preset when disaster type changes
+  useEffect(() => {
+    if (disasterType === "TSUNAMI") setCameraView("coast");
+    else if (disasterType === "VOLCANO") setCameraView("crater");
+    else if (disasterType === "LIQUEFACTION") setCameraView("city");
+    else if (disasterType === "EARTHQUAKE") setCameraView("city");
+  }, [disasterType]);
+
+  // Handle disaster mode change
+  const handleSelectMode = (mode: DisasterMode) => {
     setActiveDisaster(mode);
-    if (onDisasterTypeChange) {
-      onDisasterTypeChange(mode);
-    }
+    onDisasterTypeChange?.(mode);
   };
 
-  // Scene Reference Objects for Animation
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const mainlandGroupRef = useRef<THREE.Group | null>(null);
-  const oceanGroupRef = useRef<THREE.Group | null>(null);
-  const volcanoGroupRef = useRef<THREE.Group | null>(null);
-  const waterMeshRef = useRef<THREE.Mesh | null>(null);
-  const foamMeshRef = useRef<THREE.Mesh | null>(null);
-  const buildingsRef = useRef<BuildingEntity[]>([]);
-  const bridgeRef = useRef<THREE.Group | null>(null);
-  const carsRef = useRef<THREE.Group[]>([]);
-  const treesRef = useRef<THREE.Group[]>([]);
-  const fissuresRef = useRef<THREE.Mesh[]>([]);
-  
-  // Particles
-  const smokeParticlesRef = useRef<THREE.Points | null>(null);
-  const fireParticlesRef = useRef<THREE.Points | null>(null);
-  const ashParticlesRef = useRef<THREE.Points | null>(null);
-  const lavaBombGroupRef = useRef<THREE.Group | null>(null);
-  const geyserParticlesRef = useRef<THREE.Points | null>(null);
-  const splashParticlesRef = useRef<THREE.Points | null>(null);
+  // State refs for animation loop
+  const stateRef = useRef({
+    mw: magnitude,
+    depth: depthKm,
+    slip: slipMeters,
+    mech: mechanism === "SUBDUCTION" ? "megathrust" : mechanism === "NORMAL" ? "normal" : "strike",
+    mode: disasterType.toLowerCase(),
+    cam: cameraView,
+    run: isSimulating,
+    night: isNight,
+    t: 0,
+  });
 
-  // Seismic Waves
-  const pWaveMeshRef = useRef<THREE.Mesh | null>(null);
-  const sWaveMeshRef = useRef<THREE.Mesh | null>(null);
-
-  // Lighting References
-  const dirLightRef = useRef<THREE.DirectionalLight | null>(null);
-  const hemiLightRef = useRef<THREE.HemisphereLight | null>(null);
-  const cityLightRef = useRef<THREE.PointLight | null>(null);
-  const volcanoCraterLightRef = useRef<THREE.PointLight | null>(null);
-
-  // Sound triggers
+  // Keep stateRef in sync with props and state
   useEffect(() => {
-    if (!isSimulating || !soundEnabled) return;
+    stateRef.current.mw = magnitude;
+    stateRef.current.depth = depthKm;
+    stateRef.current.slip = slipMeters;
+    stateRef.current.mech =
+      mechanism === "SUBDUCTION" ? "megathrust" : mechanism === "NORMAL" ? "normal" : "strike";
+    stateRef.current.mode = activeDisaster === "EARTHQUAKE" ? "quake" : activeDisaster.toLowerCase();
+    stateRef.current.run = isSimulating;
+    stateRef.current.night = isNight;
+    stateRef.current.cam = cameraView;
+  }, [magnitude, depthKm, slipMeters, mechanism, activeDisaster, isSimulating, isNight, cameraView]);
+
+  // Target camera lerping
+  const targetCamPos = useRef(new THREE.Vector3(...CAMERA_PRESETS.coast[0]));
+  const targetCamLook = useRef(new THREE.Vector3(...CAMERA_PRESETS.coast[1]));
+  const camLerpWeight = useRef(0);
+
+  const switchCamera = useCallback((k: CameraPreset) => {
+    setCameraView(k);
+    stateRef.current.cam = k;
+    targetCamPos.current.set(...CAMERA_PRESETS[k][0]);
+    targetCamLook.current.set(...CAMERA_PRESETS[k][1]);
+    camLerpWeight.current = 2.5;
+  }, []);
+
+  // Update camera on preset change
+  useEffect(() => {
+    switchCamera(cameraView);
+  }, [cameraView, switchCamera]);
+
+  // Sound triggers based on simulation state
+  useEffect(() => {
+    if (!isSimulating || !soundEnabled) {
+      stopEmergencySiren();
+      return;
+    }
 
     if (activeDisaster === "VOLCANO") {
       playVolcanoBlast(5.0);
     } else if (activeDisaster === "TSUNAMI" || isTsunamiActive) {
-      playTsunamiSurge(6.0);
-      playEarthquakeRumble(4.5);
+      playTsunamiSurge(6.5);
+      playEarthquakeRumble(5.0);
+      startEmergencySiren();
     } else if (activeDisaster === "EARTHQUAKE") {
       playEarthquakeRumble(5.0);
-      setTimeout(() => playTransformerSparks(), 1200);
+      setTimeout(() => playTransformerSparks(), 1400);
+      if (magnitude >= 7.0) startEmergencySiren();
     } else if (activeDisaster === "LIQUEFACTION") {
       playEarthquakeRumble(6.0);
     }
-  }, [isSimulating, activeDisaster, isTsunamiActive, soundEnabled]);
 
-  // Seismograph Live Plotting Engine
-  useEffect(() => {
-    const canvas = seismoCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let animId: number;
-    const history: number[] = new Array(80).fill(0);
-
-    const drawSeismo = () => {
-      animId = requestAnimationFrame(drawSeismo);
-      const w = canvas.width;
-      const h = canvas.height;
-      const midY = h / 2;
-
-      // Add new sample
-      let sample = 0;
-      if (isSimulating) {
-        const factor = (magnitude - 4.5) * 4.2;
-        sample = (Math.random() - 0.5) * factor + Math.sin(Date.now() * 0.02) * (factor * 0.7);
-      } else {
-        sample = (Math.random() - 0.5) * 0.6; // ambient background microseism
-      }
-
-      history.shift();
-      history.push(sample);
-
-      // Clear
-      ctx.fillStyle = "rgba(2, 6, 23, 0.85)";
-      ctx.fillRect(0, 0, w, h);
-
-      // Grid Lines
-      ctx.strokeStyle = "rgba(30, 41, 59, 0.7)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, midY);
-      ctx.lineTo(w, midY);
-      ctx.stroke();
-
-      // Waveform line
-      ctx.beginPath();
-      ctx.strokeStyle = isSimulating ? "#ef4444" : "#10b981";
-      ctx.lineWidth = 1.8;
-      const step = w / (history.length - 1);
-      for (let i = 0; i < history.length; i++) {
-        const x = i * step;
-        const y = Math.max(2, Math.min(h - 2, midY + history[i] * 3.5));
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-
-      // Station ID
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "9px monospace";
-      ctx.fillText(`STA: INA-TEWS 01 | ACC: ${(Math.abs(history[history.length - 1]) * 0.12).toFixed(2)}g`, 6, 12);
+    return () => {
+      stopEmergencySiren();
     };
+  }, [isSimulating, activeDisaster, isTsunamiActive, soundEnabled, magnitude]);
 
-    animId = requestAnimationFrame(drawSeismo);
-    return () => cancelAnimationFrame(animId);
-  }, [isSimulating, magnitude]);
-
-  // Main Three.js Scene Setup & Render Loop
+  // Main Three.js Scene Setup
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
-    // 1. Scene & Dynamic Atmosphere Setup
-    const scene = new THREE.Scene();
-    sceneRef.current = scene;
-
-    // Background & Fog based on Time of Day
-    const updateAtmosphere = (tod: TimeOfDay) => {
-      if (tod === "DAY") {
-        scene.background = new THREE.Color(0x38bdf8);
-        scene.fog = new THREE.FogExp2(0xbae6fd, 0.005);
-      } else if (tod === "DUSK") {
-        scene.background = new THREE.Color(0x3b0764);
-        scene.fog = new THREE.FogExp2(0x4c0519, 0.0065);
-      } else {
-        scene.background = new THREE.Color(0x020617);
-        scene.fog = new THREE.FogExp2(0x020617, 0.0075);
-      }
-    };
-    updateAtmosphere(timeOfDay);
-
-    // 2. Camera Setup
-    const camera = new THREE.PerspectiveCamera(
-      45,
-      container.clientWidth / container.clientHeight,
-      0.5,
-      1200
-    );
-    camera.position.set(52, 42, 68);
-    camera.lookAt(0, 0, 0);
-    cameraRef.current = camera;
-
-    // 3. Renderer with ACES Filmic Tone Mapping
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      powerPreference: "high-performance",
-    });
+    // Renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = timeOfDay === "DAY" ? 1.35 : timeOfDay === "DUSK" ? 1.25 : 1.1;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
-    // 4. OrbitControls
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 300);
+    camera.position.set(...CAMERA_PRESETS.coast[0]);
+    cameraRef.current = camera;
+
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI / 2 + 0.08;
-    controls.minDistance = 14;
-    controls.maxDistance = 180;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+    controls.minDistance = 6;
+    controls.maxDistance = 150;
+    controls.target.set(...CAMERA_PRESETS.coast[1]);
     controlsRef.current = controls;
 
-    // 5. Dynamic Multi-Source Lighting
-    const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.7);
-    scene.add(hemiLight);
-    hemiLightRef.current = hemiLight;
-
-    const sun = new THREE.DirectionalLight(0xfffbeb, 2.2);
-    sun.position.set(50, 85, 45);
+    // Lighting
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 0.85);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
+    sun.position.set(15, 25, 10);
     sun.castShadow = true;
-    sun.shadow.mapSize.width = 2048;
-    sun.shadow.mapSize.height = 2048;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 80 });
     sun.shadow.bias = -0.0004;
-    scene.add(sun);
-    dirLightRef.current = sun;
+    scene.add(hemi, sun);
 
-    // Subterranean Magma Core Glow
-    const magmaGlow = new THREE.PointLight(0xff2200, 4.2, 70);
-    magmaGlow.position.set(0, -9.5, 0);
-    scene.add(magmaGlow);
+    const world = new THREE.Group();
+    scene.add(world);
 
-    // City Center Night Light
-    const cityLight = new THREE.PointLight(0x38bdf8, 2.8, 60);
-    cityLight.position.set(-18, 14, 5);
-    scene.add(cityLight);
-    cityLightRef.current = cityLight;
+    // Helpers
+    const mat = (c: THREE.ColorRepresentation, o: THREE.MeshStandardMaterialParameters = {}) =>
+      new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, ...o });
+    const box = (w: number, h: number, d: number, m: THREE.Material) =>
+      new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
 
-    // Volcano Crater Lava Light
-    const volcanoCraterLight = new THREE.PointLight(0xff3300, 5.0, 50);
-    volcanoCraterLight.position.set(24, 15, -12);
-    scene.add(volcanoCraterLight);
-    volcanoCraterLightRef.current = volcanoCraterLight;
-
-    // --- Noise helper for organic terrain ---
-    const simplex2D = (x: number, y: number): number => {
-      const dot = x * 12.9898 + y * 78.233;
-      const s = Math.sin(dot) * 43758.5453;
-      return (s - Math.floor(s)) * 2 - 1;
-    };
-    const fbm = (x: number, y: number, octaves = 4): number => {
-      let val = 0, amp = 1, freq = 1, maxAmp = 0;
-      for (let i = 0; i < octaves; i++) {
-        val += simplex2D(x * freq, y * freq) * amp;
-        maxAmp += amp;
-        amp *= 0.5;
-        freq *= 2.1;
-      }
-      return val / maxAmp;
-    };
-
-    // 6. Asthenosphere Mantle (Rough Organic Rock Surface)
-    const mantleGeo = new THREE.PlaneGeometry(92, 70, 30, 30);
-    const mPos = mantleGeo.attributes.position;
-    for (let i = 0; i < mPos.count; i++) {
-      mPos.setZ(i, fbm(mPos.getX(i) * 0.12, mPos.getY(i) * 0.12, 3) * 1.2);
+    // Procedural Grass Texture
+    const gk = document.createElement("canvas");
+    gk.width = gk.height = 128;
+    const gx = gk.getContext("2d")!;
+    gx.fillStyle = "#8ea862";
+    gx.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 2400; i++) {
+      const v = (140 + Math.random() * 110) | 0;
+      gx.fillStyle = `rgb(${v - 25},${v},${v - 40})`;
+      gx.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
     }
-    mantleGeo.computeVertexNormals();
-    const mantleMat = new THREE.MeshStandardMaterial({
-      color: 0x7f1d1d,
-      emissive: 0x991b1b,
-      emissiveIntensity: 0.9,
-      roughness: 0.85,
-    });
-    const mantle = new THREE.Mesh(mantleGeo, mantleMat);
-    mantle.rotation.x = -Math.PI / 2;
-    mantle.position.set(0, -10.0, 0);
-    scene.add(mantle);
+    const gt = new THREE.CanvasTexture(gk);
+    gt.wrapS = gt.wrapT = THREE.RepeatWrapping;
+    gt.repeat.set(5, 5);
+    gt.colorSpace = THREE.SRGBColorSpace;
 
-    // Thin geological strata layers visible on cross-section
-    for (let layer = 0; layer < 3; layer++) {
-      const strataGeo = new THREE.BoxGeometry(92, 0.4, 70);
-      const strataMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color().setHSL(0.05, 0.3, 0.12 + layer * 0.06),
-        roughness: 0.95,
+    // 1. DARATAN KOTA UTAMA (Sisi Barat X: -22 s/d -2.5)
+    const ground = box(19.5, 1, 30, mat(0x8aa860, { map: gt }));
+    ground.receiveShadow = true;
+    ground.position.set(-12.25, -0.5, 0);
+    world.add(ground);
+
+    const sandBeach = box(0.8, 0.96, 30, mat(0xd6c59b));
+    sandBeach.position.set(-2.4, -0.52, 0);
+    world.add(sandBeach);
+
+    const layer = box(19.5, 1.2, 30, mat(0xb3202f));
+    layer.position.set(-12.25, -1.6, 0);
+    world.add(layer);
+
+    const base = box(19.5, 6, 30, mat(0x3b3f46));
+    base.position.set(-12.25, -5.2, 0);
+    world.add(base);
+
+    const seabed = box(32, 5, 32, mat(0x1a2634));
+    seabed.position.set(13.5, -4.5, 0);
+    world.add(seabed);
+
+    // 2. GEDUNG KOTA DI DARATAN BARAT
+    const N = 56;
+    interface BuildingData {
+      x: number;
+      z: number;
+      w: number;
+      h: number;
+      ph: number;
+    }
+    const Bd: BuildingData[] = [];
+    for (let i = 0; i < N; i++) {
+      const col = i % 8;
+      const row = Math.floor(i / 8);
+      Bd.push({
+        x: -18.2 + col * 1.85 + Math.random() * 0.35,
+        z: -6.5 + row * 1.9 + Math.random() * 0.35,
+        w: 0.85 + Math.random() * 0.5,
+        h: 1.2 + Math.random() * 3.8,
+        ph: Math.random() * 6.28,
       });
-      const strata = new THREE.Mesh(strataGeo, strataMat);
-      strata.position.set(0, -12.5 - layer * 1.6, 0);
-      scene.add(strata);
     }
 
-    // 7. Mainland Tectonic Plate Group
-    const mainlandGroup = new THREE.Group();
-    scene.add(mainlandGroup);
-    mainlandGroupRef.current = mainlandGroup;
+    const bg = new THREE.BoxGeometry(1, 1, 1);
+    bg.translate(0, 0.5, 0);
 
-    // Lithospheric Crust Base (Layered Rock with Irregular Top)
-    const crustGeo = new THREE.BoxGeometry(42, 14, 64);
-    const crustMat = new THREE.MeshStandardMaterial({
-      color: 0x292524,
-      roughness: 0.92,
-      metalness: 0.08,
-    });
-    const crust = new THREE.Mesh(crustGeo, crustMat);
-    crust.position.set(-21.5, -3.5, 0);
-    crust.receiveShadow = true;
-    mainlandGroup.add(crust);
-
-    // Organic Mainland Terrain with Multi-Octave Noise Displacement
-    const landTopGeo = new THREE.PlaneGeometry(42, 64, 72, 72);
-    const landPos = landTopGeo.attributes.position;
-    const landColors = new Float32Array(landPos.count * 3);
-    for (let i = 0; i < landPos.count; i++) {
-      const x = landPos.getX(i);
-      const y = landPos.getY(i);
-      // Terrain elevation with multiple noise octaves
-      let elev = 0;
-      if (x < -6) {
-        // Mountain/hill zone — rugged terrain
-        elev = Math.abs(fbm(x * 0.08 + 2.5, y * 0.06, 5)) * 7.5 + Math.abs(x + 6) * 0.42;
-      } else if (x < 0) {
-        // Coastal lowland — gentle rolling
-        elev = Math.max(0, fbm(x * 0.2, y * 0.15, 3) * 1.5);
-      } else {
-        // Beach edge
-        elev = Math.max(0, (1 - x / 4) * 0.3);
-      }
-      // Add small-scale noise for organic roughness everywhere
-      elev += fbm(x * 0.5 + 10, y * 0.5, 2) * 0.3;
-      landPos.setZ(i, Math.max(0, elev));
-
-      // Vertex coloring: snow cap, rock, forest, grass, sand
-      const col = new THREE.Color();
-      if (elev > 8) {
-        col.setHex(0xd4d4d8); // Snow cap
-      } else if (elev > 5.5) {
-        col.setHex(0x57534e); // Exposed rock
-      } else if (elev > 2.0) {
-        col.setHex(0x166534); // Dense forest green
-      } else if (elev > 0.5) {
-        col.setHex(0x22c55e); // Grass
-      } else {
-        col.setHex(0xd97706); // Sandy beach
-      }
-      landColors[i * 3] = col.r;
-      landColors[i * 3 + 1] = col.g;
-      landColors[i * 3 + 2] = col.b;
-    }
-    landTopGeo.setAttribute("color", new THREE.BufferAttribute(landColors, 3));
-    landTopGeo.computeVertexNormals();
-
-    const landTopMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.82,
-      flatShading: false,
-    });
-    const landSurface = new THREE.Mesh(landTopGeo, landTopMat);
-    landSurface.rotation.x = -Math.PI / 2;
-    landSurface.position.set(-21.5, 3.6, 0);
-    landSurface.receiveShadow = true;
-    landSurface.castShadow = true;
-    mainlandGroup.add(landSurface);
-
-    // Realistic Mountain Massifs (Continuous Cordillera with Connected Ridges & Valleys)
-    for (let m = 0; m < 4; m++) {
-      const mHeight = 13 + (m % 2 === 0 ? 5 : 2);
-      const mRadius = 11 + Math.random() * 4;
-      const mGeo = new THREE.CylinderGeometry(0.4, mRadius, mHeight, 28, 12);
-      const mPosArr = mGeo.attributes.position;
-      for (let v = 0; v < mPosArr.count; v++) {
-        const vx = mPosArr.getX(v);
-        const vy = mPosArr.getY(v);
-        const vz = mPosArr.getZ(v);
-        const heightRatio = (vy + mHeight / 2) / mHeight; // 0 at base, 1 at summit
-        const dist = Math.sqrt(vx * vx + vz * vz);
-
-        // Natural mountain profile: concave exponential curve (broad base spreading out, steep peaks)
-        const profile = Math.pow(1.0 - heightRatio * 0.85, 1.6);
-
-        // Radial mountain ridges (alur pegunungan)
-        const angle = Math.atan2(vz, vx);
-        const ridgeVal = Math.abs(Math.sin(angle * 3.0 + m * 1.4)) * 0.35;
-        const noiseFactor = (fbm(vx * 0.22, vz * 0.22 + m * 7, 3) * 1.6 + ridgeVal) * profile;
-
-        if (dist > 0.01) {
-          mPosArr.setX(v, vx + (vx / dist) * noiseFactor);
-          mPosArr.setZ(v, vz + (vz / dist) * noiseFactor);
-        }
-        // Displace Y for craggy jagged peaks
-        mPosArr.setY(v, vy + (1.0 - Math.abs(fbm(vx * 0.25, vz * 0.25, 2))) * (1.2 * heightRatio));
-      }
-      mGeo.computeVertexNormals();
-
-      // Vertex color gradient: deep rainforest green base, dark slate rock, granite peaks
-      const mColors = new Float32Array(mPosArr.count * 3);
-      for (let v = 0; v < mPosArr.count; v++) {
-        const vy = mPosArr.getY(v);
-        const heightRatio = (vy + mHeight / 2) / mHeight;
-        const c = new THREE.Color();
-        if (heightRatio > 0.82) c.setHex(0xe2e8f0); // Mountain mist/granite peak
-        else if (heightRatio > 0.5) c.setHex(0x475569); // Rocky crags & cliffs
-        else if (heightRatio > 0.25) c.setHex(0x166534); // Mountain rainforest
-        else c.setHex(0x14532d); // Lush tropical valley
-        mColors[v * 3] = c.r;
-        mColors[v * 3 + 1] = c.g;
-        mColors[v * 3 + 2] = c.b;
-      }
-      mGeo.setAttribute("color", new THREE.BufferAttribute(mColors, 3));
-
-      const mMat = new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 0.9,
-        flatShading: true,
-      });
-      const mountain = new THREE.Mesh(mGeo, mMat);
-      mountain.position.set(-29 - (m % 2) * 5, 3.4 + mHeight / 2, -22 + m * 14);
-      mountain.castShadow = true;
-      mountain.receiveShadow = true;
-      mainlandGroup.add(mountain);
-    }
-
-    // Coastal Seawall Promenade (Tanggul Pantai & Revetment)
-    const seawallGeo = new THREE.BoxGeometry(0.8, 1.2, 64);
-    const seawallMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.75 });
-    const seawall = new THREE.Mesh(seawallGeo, seawallMat);
-    seawall.position.set(-0.4, 3.9, 0);
-    seawall.receiveShadow = true;
-    mainlandGroup.add(seawall);
-
-    // Promenade Pedestrian Walkway
-    const walkwayGeo = new THREE.BoxGeometry(1.4, 0.1, 64);
-    const walkwayMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.65 });
-    const walkway = new THREE.Mesh(walkwayGeo, walkwayMat);
-    walkway.position.set(-1.4, 3.82, 0);
-    walkway.receiveShadow = true;
-    mainlandGroup.add(walkway);
-
-    // Promenade Streetlights (Lampu Jalan Pantai)
-    for (let sl = 0; sl < 8; sl++) {
-      const poleGeo = new THREE.CylinderGeometry(0.04, 0.05, 2.4, 6);
-      const poleMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.6 });
-      const pole = new THREE.Mesh(poleGeo, poleMat);
-      pole.position.set(-1.8, 4.9, -26 + sl * 7.5);
-      mainlandGroup.add(pole);
-
-      const lampGeo = new THREE.SphereGeometry(0.12, 6, 6);
-      const lampMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
-      const lamp = new THREE.Mesh(lampGeo, lampMat);
-      lamp.position.set(-1.8, 6.1, -26 + sl * 7.5);
-      mainlandGroup.add(lamp);
-    }
-
-    // Multi-Layered Organic Trees (Sphere Clusters + Trunks)
-    const treeList: THREE.Group[] = [];
-    const foliageMats = [
-      new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.75 }),
-      new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 0.8 }),
-      new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.85 }),
-    ];
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.92 });
-
-    for (let t = 0; t < 40; t++) {
-      const treeGroup = new THREE.Group();
-      const treeHeight = 1.5 + Math.random() * 1.2;
-      const isPalm = Math.random() > 0.65;
-
-      // Trunk (slightly tapered cylinder)
-      const trunkGeo = new THREE.CylinderGeometry(
-        isPalm ? 0.1 : 0.08,
-        isPalm ? 0.18 : 0.14,
-        treeHeight,
-        isPalm ? 6 : 5
-      );
-      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-      trunk.position.y = treeHeight / 2;
-      trunk.castShadow = true;
-      treeGroup.add(trunk);
-
-      if (isPalm) {
-        // Palm fronds as flattened spheroids
-        for (let fr = 0; fr < 5; fr++) {
-          const frondGeo = new THREE.SphereGeometry(0.7, 6, 4);
-          frondGeo.scale(1.6, 0.25, 0.6);
-          const frond = new THREE.Mesh(frondGeo, foliageMats[0]);
-          const angle = (fr / 5) * Math.PI * 2;
-          frond.position.set(
-            Math.cos(angle) * 0.6,
-            treeHeight + 0.3,
-            Math.sin(angle) * 0.6
-          );
-          frond.rotation.z = Math.cos(angle) * 0.5;
-          frond.rotation.x = Math.sin(angle) * 0.5;
-          frond.castShadow = true;
-          treeGroup.add(frond);
-        }
-      } else {
-        // Deciduous / conifer: layered sphere cluster canopy
-        const layers = 2 + Math.floor(Math.random() * 2);
-        for (let l = 0; l < layers; l++) {
-          const canopyR = (0.7 + Math.random() * 0.3) * (1 - l * 0.15);
-          const canopyGeo = new THREE.SphereGeometry(canopyR, 8, 6);
-          // Displace canopy vertices for organic lumpy shape
-          const cPos = canopyGeo.attributes.position;
-          for (let cv = 0; cv < cPos.count; cv++) {
-            const cx = cPos.getX(cv);
-            const cy = cPos.getY(cv);
-            const cz = cPos.getZ(cv);
-            const bump = 1 + fbm(cx * 2 + t, cz * 2, 2) * 0.25;
-            cPos.setX(cv, cx * bump);
-            cPos.setY(cv, cy * bump);
-            cPos.setZ(cv, cz * bump);
-          }
-          canopyGeo.computeVertexNormals();
-          const canopy = new THREE.Mesh(canopyGeo, foliageMats[l % foliageMats.length]);
-          canopy.position.y = treeHeight + 0.5 + l * 0.55;
-          canopy.castShadow = true;
-          treeGroup.add(canopy);
+    function createWinTexture(lit: boolean) {
+      const k = document.createElement("canvas");
+      k.width = 64;
+      k.height = 128;
+      const x = k.getContext("2d")!;
+      x.fillStyle = lit ? "#000000" : "#aab3ba";
+      x.fillRect(0, 0, 64, 128);
+      for (let r = 0; r < 8; r++) {
+        for (let q = 0; q < 4; q++) {
+          const on = (r * 7 + q * 13) % 5 < 3;
+          x.fillStyle = lit ? (on ? "#ffd27a" : "#000000") : "#27394a";
+          x.fillRect(5 + q * 15, 6 + r * 15, 9, 10);
         }
       }
-
-      const treeX = -6 - Math.random() * 28;
-      const treeZ = -28 + Math.random() * 56;
-      treeGroup.position.set(treeX, 3.6, treeZ);
-      treeGroup.scale.setScalar(0.8 + Math.random() * 0.5);
-      mainlandGroup.add(treeGroup);
-      treeList.push(treeGroup);
-    }
-    treesRef.current = treeList;
-
-    // Coastal Asphalt Highway (with lane markings)
-    const roadGeo = new THREE.BoxGeometry(40, 0.14, 3.8);
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.6 });
-    const road = new THREE.Mesh(roadGeo, roadMat);
-    road.position.set(-20.5, 3.78, -5);
-    road.receiveShadow = true;
-    mainlandGroup.add(road);
-    // White lane markings (dashed center line)
-    for (let mark = 0; mark < 18; mark++) {
-      const markGeo = new THREE.BoxGeometry(1.2, 0.02, 0.12);
-      const markMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
-      const markMesh = new THREE.Mesh(markGeo, markMat);
-      markMesh.position.set(-36 + mark * 4.0, 3.86, -5);
-      mainlandGroup.add(markMesh);
+      const t = new THREE.CanvasTexture(k);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
     }
 
-    // Emergency Vehicles on Highway (Shaped Cars)
-    const carList: THREE.Group[] = [];
-    for (let c = 0; c < 4; c++) {
-      const carGroup = new THREE.Group();
-      // Car body (lower body + cabin)
-      const bodyGeo = new THREE.BoxGeometry(2.0, 0.55, 1.0);
-      const isAmbulance = c === 0;
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: isAmbulance ? 0xfafafa : c === 1 ? 0x1d4ed8 : 0xef4444,
-        roughness: 0.3,
-        metalness: 0.4,
-      });
-      const body = new THREE.Mesh(bodyGeo, bodyMat);
-      body.position.y = 0.28;
-      carGroup.add(body);
+    const bm = mat(0xffffff, {
+      map: createWinTexture(false),
+      emissive: 0xffffff,
+      emissiveMap: createWinTexture(true),
+      emissiveIntensity: 0,
+    });
+    const roof = mat(0x7d8790);
+    const city = new THREE.InstancedMesh(bg, [bm, bm, roof, roof, bm, bm], N);
+    city.castShadow = true;
+    city.receiveShadow = true;
+    world.add(city);
 
-      // Cabin upper body
-      const cabGeo = new THREE.BoxGeometry(1.1, 0.45, 0.85);
-      const cabMat = new THREE.MeshStandardMaterial({
-        color: isAmbulance ? 0xfafafa : 0x1e293b,
-        roughness: 0.25,
-        metalness: 0.5,
-      });
-      const cab = new THREE.Mesh(cabGeo, cabMat);
-      cab.position.set(-0.2, 0.73, 0);
-      carGroup.add(cab);
+    const cc = new THREE.Color();
+    Bd.forEach((_, i) => city.setColorAt(i, cc.setHSL(0.55, 0.08, 0.6 + Math.random() * 0.25)));
+    city.instanceColor!.needsUpdate = true;
+    const dm = new THREE.Object3D();
 
-      // Wheels (4 small cylinders)
-      const wheelGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.12, 8);
-      const wheelMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.95 });
-      const wheelPositions = [[-0.6, 0, 0.5], [0.6, 0, 0.5], [-0.6, 0, -0.5], [0.6, 0, -0.5]];
-      wheelPositions.forEach(([wx, wy, wz]) => {
-        const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-        wheel.rotation.x = Math.PI / 2;
-        wheel.position.set(wx, wy, wz);
-        carGroup.add(wheel);
-      });
-
-      // Emergency light bar
-      const beaconGeo = new THREE.BoxGeometry(0.6, 0.12, 0.3);
-      const beaconMat = new THREE.MeshBasicMaterial({ color: c % 2 === 0 ? 0xef4444 : 0x38bdf8 });
-      const beacon = new THREE.Mesh(beaconGeo, beaconMat);
-      beacon.position.set(0, 0.98, 0);
-      carGroup.add(beacon);
-
-      carGroup.position.set(-32 + c * 8.5, 4.08, -5 + (c % 2 === 0 ? 0.9 : -0.9));
-      mainlandGroup.add(carGroup);
-      carList.push(carGroup);
+    // 3. POHON DI DARATAN KOTA
+    const NT = 60;
+    const trGeom = new THREE.CylinderGeometry(0.06, 0.09, 0.6, 5);
+    trGeom.translate(0, 0.3, 0);
+    const tcGeom = new THREE.ConeGeometry(0.45, 1.4, 7);
+    tcGeom.translate(0, 1.2, 0);
+    const tr = new THREE.InstancedMesh(trGeom, mat(0x5a3d26), NT);
+    const tc = new THREE.InstancedMesh(tcGeom, mat(0x2f6b3a), NT);
+    const td = new THREE.Object3D();
+    let tn = 0;
+    for (let i = 0; tn < NT && i < 2000; i++) {
+      const x = -21 + Math.random() * 17.5;
+      const z = -13 + Math.random() * 26;
+      if (x > -16.5 && x < -4.5 && z > -7.5 && z < 4.5) continue;
+      const s = 0.7 + Math.random() * 0.8;
+      td.position.set(x, 0, z);
+      td.rotation.set(0, Math.random() * 6, 0);
+      td.scale.set(s, s, s);
+      td.updateMatrix();
+      tr.setMatrixAt(tn, td.matrix);
+      tc.setMatrixAt(tn++, td.matrix);
     }
-    carsRef.current = carList;
+    tr.count = tc.count = tn;
+    tc.castShadow = tr.castShadow = true;
+    world.add(tr, tc);
 
-    // 8. Realistic City Skyscrapers with 4-Sided Window Panels & Architectural Details
-    const buildingList: BuildingEntity[] = [];
-
-    const glassMat = new THREE.MeshPhysicalMaterial({
-      color: 0x7dd3fc,
-      metalness: 0.85,
-      roughness: 0.05,
-      transmission: 0.15,
-      thickness: 0.5,
-      emissive: 0x0369a1,
-      emissiveIntensity: timeOfDay === "NIGHT" ? 0.85 : 0.35,
-    });
-    const concreteMat = new THREE.MeshStandardMaterial({
-      color: 0x44403c,
-      metalness: 0.2,
-      roughness: 0.75,
-    });
-    const whiteConcreteMat = new THREE.MeshStandardMaterial({
-      color: 0xd6d3d1,
-      metalness: 0.15,
-      roughness: 0.65,
+    // 4. PEGUNUNGAN LATAR BELAKANG DARATAN KOTA
+    [
+      [-20, -13.5, 5.2, 7.2],
+      [-15, -13.8, 4.5, 5.8],
+      [-10, -13.2, 4.2, 6.2],
+      [-6, -13.6, 3.6, 4.8],
+    ].forEach((a) => {
+      const m = new THREE.Mesh(new THREE.ConeGeometry(a[2], a[3], 6), mat(0x5f6f63));
+      m.position.set(a[0], a[3] / 2, a[1]);
+      world.add(m);
     });
 
-    const createBuilding = (bw: number, bd: number, bh: number, style: number) => {
-      const bldgGroup = new THREE.Group();
-      const podiumHeight = bh * 0.45;
-      const upperHeight = bh * 0.55;
+    // 5. PULAU GUNUNG BERAPI DI TENGAH LAUT (X = 13, Z = 0)
+    const islandBase = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 7.8, 1.2, 32), mat(0x3d352e));
+    islandBase.position.set(13, -0.1, 0);
+    islandBase.receiveShadow = true;
+    world.add(islandBase);
 
-      // 1. Lower Podium (Collapses and pancakes under structural failure)
-      const podiumGroup = new THREE.Group();
-      bldgGroup.add(podiumGroup);
+    const islandSlope = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 6.2, 0.8, 32), mat(0x22262a));
+    islandSlope.position.set(13, 0.4, 0);
+    world.add(islandSlope);
 
-      const podiumCoreGeo = new THREE.BoxGeometry(bw * 0.94, podiumHeight, bd * 0.94);
-      const podiumCore = new THREE.Mesh(podiumCoreGeo, style < 2 ? concreteMat : whiteConcreteMat);
-      podiumCore.position.y = -bh / 2 + podiumHeight / 2;
-      podiumCore.castShadow = true;
-      podiumCore.receiveShadow = true;
-      podiumGroup.add(podiumCore);
-
-      // Windows on podium (all 4 sides)
-      const podRows = Math.max(1, Math.floor(podiumHeight / 1.4));
-      const cols = Math.max(2, Math.floor(bw / 1.0));
-      for (let wr = 0; wr < podRows; wr++) {
-        for (let wc = 0; wc < cols; wc++) {
-          const winW = (bw * 0.8) / cols;
-          const winH = 0.65;
-          const winGeo = new THREE.PlaneGeometry(winW * 0.85, winH);
-          const wy = -bh / 2 + 0.8 + wr * 1.3;
-          // Front
-          const winF = new THREE.Mesh(winGeo, glassMat);
-          winF.position.set(-bw * 0.4 + wc * winW + winW / 2, wy, bd * 0.48);
-          podiumGroup.add(winF);
-          // Back
-          const winB = new THREE.Mesh(winGeo, glassMat);
-          winB.position.set(-bw * 0.4 + wc * winW + winW / 2, wy, -bd * 0.48);
-          winB.rotation.y = Math.PI;
-          podiumGroup.add(winB);
-          // Left
-          const winL = new THREE.Mesh(winGeo, glassMat);
-          winL.position.set(-bw * 0.48, wy, -bd * 0.4 + wc * winW + winW / 2);
-          winL.rotation.y = -Math.PI / 2;
-          podiumGroup.add(winL);
-          // Right
-          const winR = new THREE.Mesh(winGeo, glassMat);
-          winR.position.set(bw * 0.48, wy, -bd * 0.4 + wc * winW + winW / 2);
-          winR.rotation.y = Math.PI / 2;
-          podiumGroup.add(winR);
-        }
-      }
-
-      // 2. Upper Tower Section (Snaps, shears, tilts, and slides off during failure)
-      const upperGroup = new THREE.Group();
-      upperGroup.position.y = -bh / 2 + podiumHeight;
-      bldgGroup.add(upperGroup);
-
-      const upperCoreGeo = new THREE.BoxGeometry(bw * 0.9, upperHeight, bd * 0.9);
-      const upperCore = new THREE.Mesh(upperCoreGeo, style < 2 ? concreteMat : whiteConcreteMat);
-      upperCore.position.y = upperHeight / 2;
-      upperCore.castShadow = true;
-      upperCore.receiveShadow = true;
-      upperGroup.add(upperCore);
-
-      // Windows on upper section (all 4 sides)
-      const upRows = Math.max(1, Math.floor(upperHeight / 1.4));
-      for (let wr = 0; wr < upRows; wr++) {
-        for (let wc = 0; wc < cols; wc++) {
-          const winW = (bw * 0.8) / cols;
-          const winH = 0.65;
-          const winGeo = new THREE.PlaneGeometry(winW * 0.85, winH);
-          const wy = 0.8 + wr * 1.3;
-          // Front
-          const winF = new THREE.Mesh(winGeo, glassMat);
-          winF.position.set(-bw * 0.4 + wc * winW + winW / 2, wy, bd * 0.46);
-          upperGroup.add(winF);
-          // Back
-          const winB = new THREE.Mesh(winGeo, glassMat);
-          winB.position.set(-bw * 0.4 + wc * winW + winW / 2, wy, -bd * 0.46);
-          winB.rotation.y = Math.PI;
-          upperGroup.add(winB);
-          // Left
-          const winL = new THREE.Mesh(winGeo, glassMat);
-          winL.position.set(-bw * 0.46, wy, -bd * 0.4 + wc * winW + winW / 2);
-          winL.rotation.y = -Math.PI / 2;
-          upperGroup.add(winL);
-          // Right
-          const winR = new THREE.Mesh(winGeo, glassMat);
-          winR.position.set(bw * 0.46, wy, -bd * 0.4 + wc * winW + winW / 2);
-          winR.rotation.y = Math.PI / 2;
-          upperGroup.add(winR);
-        }
-      }
-
-      // Roof details on upper section (Helipad, antenna spire, AC units)
-      if (bh > 10) {
-        const padGeo = new THREE.CylinderGeometry(1.1, 1.1, 0.1, 16);
-        const padMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
-        const pad = new THREE.Mesh(padGeo, padMat);
-        pad.position.y = upperHeight + 0.08;
-        upperGroup.add(pad);
-      }
-      if (bh > 11) {
-        const antennaGeo = new THREE.CylinderGeometry(0.06, 0.06, 3.5, 6);
-        const antenna = new THREE.Mesh(antennaGeo, new THREE.MeshBasicMaterial({ color: 0xf43f5e }));
-        antenna.position.y = upperHeight + 1.75;
-        upperGroup.add(antenna);
-
-        const blinkGeo = new THREE.SphereGeometry(0.12, 6, 6);
-        const blinkMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-        const blink = new THREE.Mesh(blinkGeo, blinkMat);
-        blink.position.y = upperHeight + 3.6;
-        upperGroup.add(blink);
-      }
-      if (bh > 7) {
-        for (let ac = 0; ac < 2; ac++) {
-          const acGeo = new THREE.BoxGeometry(0.6, 0.3, 0.5);
-          const acUnit = new THREE.Mesh(acGeo, concreteMat);
-          acUnit.position.set(-0.5 + ac * 1.0, upperHeight + 0.15, 0);
-          upperGroup.add(acUnit);
-        }
-      }
-
-      // 3. Rubble Debris Field (Broken concrete slabs, chunks, shattered foundation)
-      const rubbleGroup = new THREE.Group();
-      rubbleGroup.position.y = -bh / 2;
-      rubbleGroup.scale.set(0.001, 0.001, 0.001); // hidden until collapse
-      bldgGroup.add(rubbleGroup);
-
-      const rubbleMat = new THREE.MeshStandardMaterial({
-        color: 0x57534e,
-        roughness: 0.95,
-        flatShading: true,
-      });
-
-      // Scatter 14 broken concrete chunks and tilted slabs
-      for (let r = 0; r < 14; r++) {
-        const rSizeX = 0.4 + Math.random() * 0.9;
-        const rSizeY = 0.2 + Math.random() * 0.5;
-        const rSizeZ = 0.4 + Math.random() * 0.9;
-        const chunkGeo = new THREE.BoxGeometry(rSizeX, rSizeY, rSizeZ);
-        const chunk = new THREE.Mesh(chunkGeo, rubbleMat);
-        chunk.position.set(
-          (Math.random() - 0.5) * (bw * 1.6),
-          rSizeY / 2 + Math.random() * 0.4,
-          (Math.random() - 0.5) * (bd * 1.6)
-        );
-        chunk.rotation.set(
-          Math.random() * 0.8,
-          Math.random() * Math.PI,
-          Math.random() * 0.8
-        );
-        chunk.castShadow = true;
-        chunk.receiveShadow = true;
-        rubbleGroup.add(chunk);
-      }
-
-      return {
-        group: bldgGroup,
-        podium: podiumGroup,
-        upperSection: upperGroup,
-        rubbleGroup,
-      };
-    };
-
-    for (let row = 0; row < 4; row++) {
-      for (let col = 0; col < 4; col++) {
-        const bHeight = 5.0 + Math.random() * 12 + (col === 1 ? 7 : 0);
-        const bWidth = 2.5 + Math.random() * 1.2;
-        const bDepth = 2.5 + Math.random() * 1.2;
-        const style = Math.floor(Math.random() * 3);
-
-        const bldgData = createBuilding(bWidth, bDepth, bHeight, style);
-        const bY = 3.6 + bHeight / 2;
-        bldgData.group.position.set(-8 - col * 4.8, bY, -14 + row * 6.8);
-        mainlandGroup.add(bldgData.group);
-
-        buildingList.push({
-          group: bldgData.group,
-          podium: bldgData.podium,
-          upperSection: bldgData.upperSection,
-          rubbleGroup: bldgData.rubbleGroup,
-          initY: bY,
-          height: bHeight,
-          collapseProgress: 0,
-          collapseThreshold: 6.8 + col * 0.25 - bHeight * 0.04,
-          tiltDir: (col % 2 === 0 ? 1 : -1) * (1 + Math.random() * 0.4),
-        });
-      }
+    // Kerucut kawah prosedural
+    const vm = mat(0xffffff, { emissive: 0xff4a00, emissiveIntensity: 0 });
+    const vg = new THREE.CylinderGeometry(1.0, 3.8, 5.0, 48, 16, true);
+    const vp = vg.attributes.position;
+    const vcl = new Float32Array(vp.count * 3);
+    for (let i = 0; i < vp.count; i++) {
+      const x = vp.getX(i);
+      const y = vp.getY(i);
+      const z = vp.getZ(i);
+      const n = Math.sin(x * 2.8 + z * 2.2) * Math.sin(z * 3.5 - y * 1.8) + 0.5 * Math.sin(x * 6 + y * 4.5);
+      const r = 1 + n * 0.08;
+      vp.setX(i, x * r);
+      vp.setZ(i, z * r);
+      const t0 = (y + 2.5) / 5.0;
+      const st = Math.sin(Math.atan2(z, x) * 6 + y * 2) > 0.65 && t0 > 0.4 ? 1 : 0;
+      const gv = 0.15 + n * 0.04 + t0 * 0.06;
+      vcl[i * 3] = gv + st * 0.55;
+      vcl[i * 3 + 1] = gv * 0.8 + st * 0.12;
+      vcl[i * 3 + 2] = gv * 0.75;
     }
-    buildingsRef.current = buildingList;
+    vg.setAttribute("color", new THREE.BufferAttribute(vcl, 3));
+    vg.computeVertexNormals();
+    vm.vertexColors = true;
+    vm.flatShading = true;
+    const vol = new THREE.Mesh(vg, vm);
+    vol.position.set(13, 2.5, 0);
+    vol.castShadow = vol.receiveShadow = true;
+    world.add(vol);
 
-    // 9. Oceanic Tectonic Block & Volcanic Island
-    const oceanGroup = new THREE.Group();
-    scene.add(oceanGroup);
-    oceanGroupRef.current = oceanGroup;
+    const lavaCircle = new THREE.CircleGeometry(1.05, 32);
+    lavaCircle.rotateX(-Math.PI / 2);
+    const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff6a1a });
+    const lava = new THREE.Mesh(lavaCircle, lavaMat);
+    lava.position.set(13, 4.95, 0);
+    world.add(lava);
 
-    // Oceanic Basalt Slab (Lower elevation)
-    const slabGeo = new THREE.BoxGeometry(42, 14, 64);
-    const slabMat = new THREE.MeshStandardMaterial({
-      color: 0x0c0a09,
-      roughness: 0.92,
-      metalness: 0.15,
-    });
-    const slab = new THREE.Mesh(slabGeo, slabMat);
-    slab.position.set(21.5, -5.5, 0);
-    slab.receiveShadow = true;
-    oceanGroup.add(slab);
+    const lavaStream = new THREE.Mesh(
+      new THREE.BoxGeometry(0.35, 3.8, 0.15),
+      mat(0xff4500, { emissive: 0xff2200, emissiveIntensity: 0.8 })
+    );
+    lavaStream.position.set(11.4, 2.3, 0.6);
+    lavaStream.rotation.set(0.3, -0.5, -0.7);
+    world.add(lavaStream);
 
-    // Realistic Stratovolcano (Displaced Irregular Cone with Lava Channels)
-    const volcanoGroup = new THREE.Group();
-    volcanoGroup.position.set(24, 0.5, -12);
-    oceanGroup.add(volcanoGroup);
-    volcanoGroupRef.current = volcanoGroup;
+    const vlight = new THREE.PointLight(0xff5a1a, 0, 28);
+    vlight.position.set(13, 5.8, 0);
+    world.add(vlight);
 
-    // Volcano body: displaced cone with rough flanks
-    const vSegR = 24;
-    const vSegH = 12;
-    const vBaseGeo = new THREE.ConeGeometry(10.0, 15.0, vSegR, vSegH);
-    const vPos = vBaseGeo.attributes.position;
-    const vColors = new Float32Array(vPos.count * 3);
-    for (let v = 0; v < vPos.count; v++) {
-      const vx = vPos.getX(v);
-      const vy = vPos.getY(v);
-      const vz = vPos.getZ(v);
-      const heightRatio = (vy + 7.5) / 15.0;
-      const dist = Math.sqrt(vx * vx + vz * vz);
-
-      // Irregular surface displacement
-      const roughness = fbm(vx * 0.2, vz * 0.2 + vy * 0.15, 4) * 2.0 * (1 - heightRatio * 0.4);
-      if (dist > 0.01) {
-        vPos.setX(v, vx + (vx / dist) * roughness);
-        vPos.setZ(v, vz + (vz / dist) * roughness);
-      }
-      vPos.setY(v, vy + fbm(vx * 0.15, vz * 0.15, 2) * 0.8);
-
-      // Vertex color: scorched summit, gray rock, green base
-      const c = new THREE.Color();
-      if (heightRatio > 0.85) c.setHex(0x1c1917); // Scorched black summit
-      else if (heightRatio > 0.6) c.setHex(0x44403c); // Dark volcanic rock
-      else if (heightRatio > 0.35) c.setHex(0x57534e); // Gray pumice
-      else c.setHex(0x365314); // Green tropical base
-      vColors[v * 3] = c.r;
-      vColors[v * 3 + 1] = c.g;
-      vColors[v * 3 + 2] = c.b;
-    }
-    vBaseGeo.setAttribute("color", new THREE.BufferAttribute(vColors, 3));
-    vBaseGeo.computeVertexNormals();
-
-    const vBaseMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.92,
-      flatShading: true,
-    });
-    const vBase = new THREE.Mesh(vBaseGeo, vBaseMat);
-    vBase.position.y = 7.5;
-    vBase.castShadow = true;
-    vBase.receiveShadow = true;
-    volcanoGroup.add(vBase);
-
-    // Caldera Crater (Hollow Ring using Torus)
-    const craterGeo = new THREE.TorusGeometry(2.8, 1.2, 8, 18);
-    const craterMat = new THREE.MeshStandardMaterial({
-      color: 0x1c1917,
-      roughness: 0.95,
-      flatShading: true,
-    });
-    const crater = new THREE.Mesh(craterGeo, craterMat);
-    crater.rotation.x = -Math.PI / 2;
-    crater.position.y = 14.8;
-    volcanoGroup.add(crater);
-
-    // Boiling Magma Lake
-    const lavaLakeGeo = new THREE.CircleGeometry(2.2, 20);
-    const lavaLakeMat = new THREE.MeshStandardMaterial({
-      color: 0xff4500,
-      emissive: 0xff2200,
-      emissiveIntensity: 3.5,
-      roughness: 0.2,
-    });
-    const lavaLake = new THREE.Mesh(lavaLakeGeo, lavaLakeMat);
-    lavaLake.rotation.x = -Math.PI / 2;
-    lavaLake.position.y = 14.5;
-    volcanoGroup.add(lavaLake);
-
-    // Lava Flow Channels (Organic curved tubes down flanks)
-    for (let lf = 0; lf < 3; lf++) {
-      const lfAngle = (lf / 3) * Math.PI * 2 + 0.5;
-      const lfPath: THREE.Vector3[] = [];
-      for (let p = 0; p < 8; p++) {
-        const t = p / 7;
-        const r = 2 + t * 8;
-        lfPath.push(new THREE.Vector3(
-          Math.cos(lfAngle + t * 0.4) * r,
-          14.0 - t * 13.5,
-          Math.sin(lfAngle + t * 0.3) * r
-        ));
-      }
-      const lfCurve = new THREE.CatmullRomCurve3(lfPath);
-      const lfTubeGeo = new THREE.TubeGeometry(lfCurve, 16, 0.3, 6, false);
-      const lfTubeMat = new THREE.MeshStandardMaterial({
-        color: 0xff5500,
-        emissive: 0xff3300,
-        emissiveIntensity: 2.5,
-        roughness: 0.35,
-      });
-      const lfTube = new THREE.Mesh(lfTubeGeo, lfTubeMat);
-      volcanoGroup.add(lfTube);
-    }
-
-    // Coastal Suspension Bridge
+    // 6. JEMBATAN MEMBENTANG DARI KOTA MELINTASI SELAT AIR KE PULAU SEBERANG
     const bridgeGroup = new THREE.Group();
-    scene.add(bridgeGroup);
-    bridgeRef.current = bridgeGroup;
+    bridgeGroup.position.set(2.0, 0, 5.0);
+    world.add(bridgeGroup);
 
-    // Road Deck
-    const deckGeo = new THREE.BoxGeometry(26, 0.5, 3.4);
-    const deckMat = new THREE.MeshStandardMaterial({ color: 0x44403c, roughness: 0.7 });
-    const deck = new THREE.Mesh(deckGeo, deckMat);
-    deck.position.set(12, 4.6, -5);
-    deck.receiveShadow = true;
+    // Abutment kota di barat jembatan
+    const abCity = box(1.6, 1.3, 2.2, mat(0x4b5563));
+    abCity.position.set(-5.6, 0.45, 0);
+    bridgeGroup.add(abCity);
+
+    // Abutment pulau seberang
+    const abIsland = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.6, 1.4, 16), mat(0x334155));
+    abIsland.position.set(5.6, 0.2, 0);
+    bridgeGroup.add(abIsland);
+
+    // Pilar penyangga menembus air
+    const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 2.3, 16), mat(0x4b5563));
+    p1.position.set(-2.8, 0.2, 0);
+    bridgeGroup.add(p1);
+
+    const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 2.3, 16), mat(0x4b5563));
+    p2.position.set(2.8, 0.2, 0);
+    bridgeGroup.add(p2);
+
+    // Pylon jembatan gantung di tengah bentang selat
+    const pylonBase = box(1.2, 2.2, 2.4, mat(0x4b5563));
+    pylonBase.position.set(0, -0.1, 0);
+    bridgeGroup.add(pylonBase);
+
+    const py1 = box(0.35, 3.6, 0.35, mat(0xf3f4f6));
+    py1.position.set(0, 2.6, 0.9);
+    bridgeGroup.add(py1);
+
+    const py2 = box(0.35, 3.6, 0.35, mat(0xf3f4f6));
+    py2.position.set(0, 2.6, -0.9);
+    bridgeGroup.add(py2);
+
+    const pyTop = box(0.4, 0.3, 2.1, mat(0xf3f4f6));
+    pyTop.position.set(0, 4.2, 0);
+    bridgeGroup.add(pyTop);
+
+    // Geladak jembatan di atas aliran air selat (Y = 1.35)
+    const deck = box(11.2, 0.25, 1.6, mat(0x374151));
+    deck.position.set(0, 1.35, 0);
+    deck.castShadow = true;
     bridgeGroup.add(deck);
 
-    // Pylons (tapered concrete towers)
-    const pylonGeo = new THREE.CylinderGeometry(0.5, 0.8, 11.5, 8);
-    const pylonMat = new THREE.MeshStandardMaterial({ color: 0xd6d3d1, roughness: 0.45 });
-    const pylonPositions = [3.5, 19.5];
-    pylonPositions.forEach((px) => {
-      const pylon = new THREE.Mesh(pylonGeo, pylonMat);
-      pylon.position.set(px, 8.8, -5);
-      pylon.castShadow = true;
-      bridgeGroup.add(pylon);
+    // Marka jalan jembatan
+    const lineDeckGeo = new THREE.PlaneGeometry(11.0, 0.08);
+    lineDeckGeo.rotateX(-Math.PI / 2);
+    const lineDeck = new THREE.Mesh(lineDeckGeo, new THREE.MeshBasicMaterial({ color: 0xf59e0b }));
+    lineDeck.position.set(0, 0.13, 0);
+    deck.add(lineDeck);
+
+    // Railing pengaman kiri & kanan
+    const r1 = box(11.2, 0.28, 0.06, mat(0xd1d5db, { metalness: 0.3, roughness: 0.5 }));
+    r1.position.set(0, 0.25, 0.76);
+    deck.add(r1);
+
+    const r2 = box(11.2, 0.28, 0.06, mat(0xd1d5db, { metalness: 0.3, roughness: 0.5 }));
+    r2.position.set(0, 0.25, -0.76);
+    deck.add(r2);
+
+    // Kabel-kabel baja suspensi simetris sempurna
+    const cableMat = mat(0xe2e8f0, { metalness: 0.6, roughness: 0.3 });
+    function addCable(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) {
+      const v1 = new THREE.Vector3(x1, y1, z1);
+      const v2 = new THREE.Vector3(x2, y2, z2);
+      const mid = new THREE.Vector3().addVectors(v1, v2).multiplyScalar(0.5);
+      const dir = new THREE.Vector3().subVectors(v2, v1);
+      const len = dir.length();
+      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, len, 6), cableMat);
+      cyl.position.copy(mid);
+      cyl.setRotationFromQuaternion(quat);
+      deck.add(cyl);
+    }
+
+    [
+      [1.4, 2.3],
+      [2.8, 2.65],
+      [4.2, 2.95],
+    ].forEach(([dx, py]) => {
+      addCable(-dx, 0.22, 0.76, 0, py, 0.88); // Barat Selatan
+      addCable(dx, 0.22, 0.76, 0, py, 0.88); // Timur Selatan
+      addCable(-dx, 0.22, -0.76, 0, py, -0.88); // Barat Utara
+      addCable(dx, 0.22, -0.76, 0, py, -0.88); // Timur Utara
     });
 
-    // Suspension Cables (Smooth Catenary Curves)
-    const cableMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
-    for (let side = -1; side <= 1; side += 2) {
-      const cablePathPoints: THREE.Vector3[] = [];
-      for (let cp = 0; cp <= 20; cp++) {
-        const t = cp / 20;
-        const x = -0.5 + t * 25;
-        // Catenary shape
-        const midX = 12;
-        const normalizedX = (x - midX) / 12.5;
-        const catenaryY = 5 + Math.cosh(normalizedX * 1.8) * 3.5;
-        cablePathPoints.push(new THREE.Vector3(x, catenaryY, -5 + side * 1.2));
-      }
-      const cableCurve = new THREE.CatmullRomCurve3(cablePathPoints);
-      const cableTubeGeo = new THREE.TubeGeometry(cableCurve, 30, 0.06, 4, false);
-      const cableMesh = new THREE.Mesh(cableTubeGeo, cableMat);
-      bridgeGroup.add(cableMesh);
-    }
-    // Vertical suspender cables
-    for (let sc = 0; sc < 12; sc++) {
-      const scX = 1 + sc * 2.0;
-      const scGeo = new THREE.CylinderGeometry(0.025, 0.025, 6, 4);
-      const scMesh = new THREE.Mesh(scGeo, cableMat);
-      scMesh.position.set(scX, 7.5, -5);
-      bridgeGroup.add(scMesh);
-    }
-
-    // 10. Dynamic Ocean Water (Physical Material for Realistic Reflections)
-    const waterGeo = new THREE.PlaneGeometry(44, 64, 84, 84);
-    const waterMat = new THREE.MeshPhysicalMaterial({
-      color: 0x0e7490,
-      roughness: 0.05,
-      metalness: 0.1,
-      transmission: 0.45,
-      thickness: 3.0,
+    // 7. LAUT & SELAT AIR MENGALIR DI BAWAH JEMBATAN (Pusat X = 13.5, Z = 0)
+    const sgeo = new THREE.PlaneGeometry(32, 32, 64, 64);
+    sgeo.rotateX(-Math.PI / 2);
+    sgeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(sgeo.attributes.position.count * 3), 3));
+    const seaMat = mat(0xffffff, {
+      vertexColors: true,
       transparent: true,
       opacity: 0.88,
+      roughness: 0.15,
+      metalness: 0.3,
     });
-    const waterMesh = new THREE.Mesh(waterGeo, waterMat);
-    waterMesh.rotation.x = -Math.PI / 2;
-    waterMesh.position.set(22, 2.2, 0);
-    scene.add(waterMesh);
-    waterMeshRef.current = waterMesh;
+    const sea = new THREE.Mesh(sgeo, seaMat);
+    sea.receiveShadow = true;
+    sea.position.set(13.5, -0.3, 0);
+    world.add(sea);
 
-    // Coastal Foam Line (Animated)
-    const foamGeo = new THREE.PlaneGeometry(3.5, 64, 20, 40);
-    const foamMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.55,
-    });
-    const foamMesh = new THREE.Mesh(foamGeo, foamMat);
-    foamMesh.rotation.x = -Math.PI / 2;
-    foamMesh.position.set(1.5, 2.35, 0);
-    scene.add(foamMesh);
-    foamMeshRef.current = foamMesh;
+    const flood = box(14, 1.2, 30, mat(0x1a6b8c, { transparent: true, opacity: 0.75 }));
+    flood.position.set(-2.5, -0.3, 0);
+    flood.scale.x = 0.001;
+    world.add(flood);
 
-    // 11. Surface Fissures along Fault Trace
-    const fissureList: THREE.Mesh[] = [];
-    for (let f = 0; f < 5; f++) {
-      const fGeo = new THREE.BoxGeometry(0.7, 4.5, 8.5);
-      const fMat = new THREE.MeshStandardMaterial({
-        color: 0xff0044,
-        emissive: 0xff1100,
-        emissiveIntensity: 1.4,
-      });
-      const fissure = new THREE.Mesh(fGeo, fMat);
-      fissure.position.set((Math.random() - 0.5) * 1.5, 1.8, -20 + f * 10);
-      fissure.scale.set(0.1, 1, 1);
-      scene.add(fissure);
-      fissureList.push(fissure);
-    }
-    fissuresRef.current = fissureList;
+    // Lumpur likuifaksi & retakan patahan
+    const mudCircle = new THREE.CircleGeometry(8, 32);
+    mudCircle.rotateX(-Math.PI / 2);
+    const mudMat = mat(0x6b4f33, { transparent: true, opacity: 0 });
+    const mud = new THREE.Mesh(mudCircle, mudMat);
+    mud.position.set(-11, 0.03, -2);
+    world.add(mud);
 
-    // 12. Volcano Eruption Ash Plume & Pyroclastic Cloud Particles
-    const ashCount = 450;
-    const ashGeo = new THREE.BufferGeometry();
-    const ashPos = new Float32Array(ashCount * 3);
-    for (let a = 0; a < ashCount; a++) {
-      ashPos[a * 3] = 24 + (Math.random() - 0.5) * 6;
-      ashPos[a * 3 + 1] = 14 + Math.random() * 22;
-      ashPos[a * 3 + 2] = -12 + (Math.random() - 0.5) * 6;
-    }
-    ashGeo.setAttribute("position", new THREE.BufferAttribute(ashPos, 3));
-    const ashMat = new THREE.PointsMaterial({
-      color: 0x334155, // Dark volcanic ash
-      size: 2.2,
-      transparent: true,
-      opacity: 0.75,
-    });
-    const ashPoints = new THREE.Points(ashGeo, ashMat);
-    scene.add(ashPoints);
-    ashParticlesRef.current = ashPoints;
-
-    // Ballistic Lava Bombs
-    const lavaBombGroup = new THREE.Group();
-    scene.add(lavaBombGroup);
-    lavaBombGroupRef.current = lavaBombGroup;
-    for (let b = 0; b < 10; b++) {
-      const bombGeo = new THREE.SphereGeometry(0.35 + Math.random() * 0.3, 8, 8);
-      const bombMat = new THREE.MeshBasicMaterial({ color: 0xff4500 });
-      const bomb = new THREE.Mesh(bombGeo, bombMat);
-      bomb.position.set(24, 15, -12);
-      lavaBombGroup.add(bomb);
+    const ck: THREE.Mesh[] = [];
+    for (let i = 0; i < 12; i++) {
+      const k = box(1, 0.03, 0.1, mat(0x151210));
+      k.position.set(-11 + (Math.random() - 0.5) * 3, 0.03, -9 + i * 1.6);
+      k.rotation.y = Math.PI / 2 + (Math.random() - 0.5) * 1.1;
+      k.scale.x = 0.001;
+      k.userData.L = 1.5 + Math.random() * 2.2;
+      world.add(k);
+      ck.push(k);
     }
 
-    // 13. Burning Fire & Smoke Particles (Earthquake Fire)
-    const smokeCount = 280;
-    const smokeGeo = new THREE.BufferGeometry();
-    const smokePos = new Float32Array(smokeCount * 3);
-    for (let s = 0; s < smokeCount; s++) {
-      smokePos[s * 3] = -14 + (Math.random() - 0.5) * 16;
-      smokePos[s * 3 + 1] = 4 + Math.random() * 16;
-      smokePos[s * 3 + 2] = -10 + (Math.random() - 0.5) * 20;
+    // 8. PARTIKEL SISTEM DENGAN SHADER
+    const NP = 700;
+    const pp = new Float32Array(NP * 3).fill(-100);
+    const pc = new Float32Array(NP * 3);
+    const pv = new Float32Array(NP * 3);
+    const pl = new Float32Array(NP);
+    const pk = new Uint8Array(NP);
+    let pi = 0;
+
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute("position", new THREE.BufferAttribute(pp, 3));
+    pg.setAttribute("color", new THREE.BufferAttribute(pc, 3));
+    const ps = new Float32Array(NP);
+    const pa = new Float32Array(NP);
+    const pL0 = new Float32Array(NP).fill(1);
+    pg.setAttribute("sz", new THREE.BufferAttribute(ps, 1));
+    pg.setAttribute("al", new THREE.BufferAttribute(pa, 1));
+
+    const PU = { uS: { value: 800 } };
+    const pts = new THREE.Points(
+      pg,
+      new THREE.ShaderMaterial({
+        uniforms: PU,
+        vertexColors: true,
+        transparent: true,
+        depthWrite: false,
+        vertexShader: `
+          attribute float sz;
+          attribute float al;
+          varying vec3 vc;
+          varying float va;
+          uniform float uS;
+          void main() {
+            vc = color;
+            va = al;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = sz * uS / -mv.z;
+            gl_Position = projectionMatrix * mv;
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vc;
+          varying float va;
+          void main() {
+            float d = length(gl_PointCoord - 0.5);
+            float a = smoothstep(0.5, 0.1, d) * va;
+            if (a < 0.01) discard;
+            gl_FragColor = vec4(vc, a);
+          }
+        `,
+      })
+    );
+    pts.frustumCulled = false;
+    world.add(pts);
+
+    function emit(k: number, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number) {
+      const i = pi++ % NP;
+      pp.set([x, y, z], i * 3);
+      pv.set([vx, vy, vz], i * 3);
+      pl[i] = pL0[i] = life;
+      pk[i] = k;
     }
-    smokeGeo.setAttribute("position", new THREE.BufferAttribute(smokePos, 3));
-    const smokeMat = new THREE.PointsMaterial({
-      color: 0x475569,
-      size: 1.8,
-      transparent: true,
-      opacity: 0.65,
-    });
-    const smokePoints = new THREE.Points(smokeGeo, smokeMat);
-    scene.add(smokePoints);
-    smokeParticlesRef.current = smokePoints;
 
-    const fireCount = 140;
-    const fireGeo = new THREE.BufferGeometry();
-    const firePos = new Float32Array(fireCount * 3);
-    for (let f = 0; f < fireCount; f++) {
-      firePos[f * 3] = -14 + (Math.random() - 0.5) * 16;
-      firePos[f * 3 + 1] = 4 + Math.random() * 6;
-      firePos[f * 3 + 2] = -10 + (Math.random() - 0.5) * 20;
+    // Sky Background Canvas Textures
+    function makeSkyTexture(a: string, b: string, c: string) {
+      const k = document.createElement("canvas");
+      k.width = 2;
+      k.height = 256;
+      const x = k.getContext("2d")!;
+      const g = x.createLinearGradient(0, 0, 0, 256);
+      g.addColorStop(0, a);
+      g.addColorStop(0.6, b);
+      g.addColorStop(1, c);
+      x.fillStyle = g;
+      x.fillRect(0, 0, 2, 256);
+      const t = new THREE.CanvasTexture(k);
+      t.colorSpace = THREE.SRGBColorSpace;
+      return t;
     }
-    fireGeo.setAttribute("position", new THREE.BufferAttribute(firePos, 3));
-    const fireMat = new THREE.PointsMaterial({
-      color: 0xf97316,
-      size: 1.3,
-      transparent: true,
-      opacity: 0.9,
-    });
-    const firePoints = new THREE.Points(fireGeo, fireMat);
-    scene.add(firePoints);
-    fireParticlesRef.current = firePoints;
+    const skyD = makeSkyTexture("#4a86b8", "#a9cde0", "#e7eef0");
+    const skyN = makeSkyTexture("#02050c", "#0b1830", "#1b2c44");
+    const nightC = new THREE.Color(0x07111e);
+    const dayC = new THREE.Color(0xdce8ee);
+    const bgc = new THREE.Color();
+    scene.fog = new THREE.Fog(0xdce8ee, 50, 140);
 
-    // 14. Soil Liquefaction Sand Boil Geysers (Mud Eruptions)
-    const geyserCount = 100;
-    const geyserGeo = new THREE.BufferGeometry();
-    const geyserPos = new Float32Array(geyserCount * 3);
-    for (let g = 0; g < geyserCount; g++) {
-      geyserPos[g * 3] = -10 + (Math.random() - 0.5) * 10;
-      geyserPos[g * 3 + 1] = 3.8 + Math.random() * 3.5;
-      geyserPos[g * 3 + 2] = -5 + (Math.random() - 0.5) * 12;
-    }
-    geyserGeo.setAttribute("position", new THREE.BufferAttribute(geyserPos, 3));
-    const geyserMat = new THREE.PointsMaterial({
-      color: 0xa16207, // Muddy brown fluidized sand
-      size: 1.2,
-      transparent: true,
-      opacity: 0.8,
-    });
-    const geyserPoints = new THREE.Points(geyserGeo, geyserMat);
-    scene.add(geyserPoints);
-    geyserParticlesRef.current = geyserPoints;
-
-    // 15. Volumetric P-Wave & S-Wave Seismic Wavefront Energy Shells (No wireframes)
-    const pWaveGeo = new THREE.SphereGeometry(6, 40, 20, 0, Math.PI * 2, 0, Math.PI * 0.65);
-    const pWaveMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.28,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const pWave = new THREE.Mesh(pWaveGeo, pWaveMat);
-    pWave.position.set(0, -6, 0);
-    scene.add(pWave);
-    pWaveMeshRef.current = pWave;
-
-    const sWaveGeo = new THREE.SphereGeometry(4, 40, 20, 0, Math.PI * 2, 0, Math.PI * 0.65);
-    const sWaveMat = new THREE.MeshBasicMaterial({
-      color: 0xef4444,
-      transparent: true,
-      opacity: 0.35,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const sWave = new THREE.Mesh(sWaveGeo, sWaveMat);
-    sWave.position.set(0, -6, 0);
-    scene.add(sWave);
-    sWaveMeshRef.current = sWave;
-
-    // 16. Window Resize Handler
+    // Resize handler
     const handleResize = () => {
-      if (!container || !renderer || !camera) return;
-      camera.aspect = container.clientWidth / container.clientHeight;
+      if (!container) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      PU.uS.value = h * renderer.getPixelRatio() * 1.07;
     };
+    handleResize();
     window.addEventListener("resize", handleResize);
 
-    // 17. Animation Loop with performance.now()
-    let lastTime = performance.now();
-    let animFrameId: number;
+    // Compute physics function
+    function computePhysics(s: typeof stateRef.current) {
+      const e = Math.pow(10, 1.5 * s.mw + 4.8) / 4.184e15;
+      const pga = Math.min(1.5, Math.pow(10, 0.5 * s.mw - 2.2) / (s.depth + 10));
+      const th = s.mech === "megathrust" && s.depth < 70 ? s.slip * 0.4 * (s.mw / 8) * 0.25 : 0;
+      const eta = th > 0 ? (150 / (Math.sqrt(9.8 * 3000) * 3.6)) * 60 : null;
+      return {
+        e,
+        pga,
+        th,
+        eta,
+        br: Math.min(100, pga * 75),
+        pw: Math.min(100, pga * 82),
+        hs: Math.min(100, pga * 88),
+      };
+    }
 
-    const animate = (currentTime: number) => {
-      animFrameId = requestAnimationFrame(animate);
+    // Seismograph trace history
+    const seismoHist = new Array(260).fill(0);
+    let seismoFrameCount = 0;
 
-      const delta = (currentTime - lastTime) * 0.001;
-      const elapsed = currentTime * 0.001;
-      lastTime = currentTime;
+    // Clock
+    const clock = new THREE.Clock();
+    let tm = 0;
+    let animId: number;
 
-      controls.update();
+    // Animation Frame Loop
+    const frame = () => {
+      animId = requestAnimationFrame(frame);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      tm += dt;
 
-      // Move Emergency Cars
-      carList.forEach((car) => {
-        car.position.x += delta * (isSimulating ? 1.5 : 8.5);
-        if (car.position.x > 22) car.position.x = -32;
+      const S = stateRef.current;
+      if (S.run) S.t += dt;
+      setSimTime(S.t);
+
+      const t = S.t;
+      const c = computePhysics(S);
+      const m = S.mode;
+      const run = S.run;
+      const dur = 4 + (S.mw - 5) * 3;
+      const shake = run && t < dur ? c.pga * (1 - (0.5 * t) / dur) * (m === "volcano" ? 0.3 : 1) : 0;
+      const prog = Math.min(1, t / dur);
+
+      // Display live PGA
+      setPgaDisplay(c.pga.toFixed(2));
+
+      // 1. World Shake
+      world.position.set(
+        (Math.random() - 0.5) * shake * 0.12,
+        (Math.random() - 0.5) * shake * 0.06,
+        (Math.random() - 0.5) * shake * 0.12
+      );
+
+      // 2. City Buildings: Sway, Collapse, Liquefaction
+      const collapse = m === "quake" && run ? Math.max(0, Math.min(1, (c.pga - 0.6) / 0.9)) * prog : 0;
+      const liq = m === "liquefaction" ? Math.min(1, t / 12) * Math.min(1, c.pga / 0.5) : 0;
+
+      Bd.forEach((b, i) => {
+        const sw = Math.sin(t * 20 + b.ph) * shake * 0.06;
+        const cl = i % 3 === 0 ? collapse : 0;
+        const lq = liq * (0.3 + (i % 4) * 0.25);
+        dm.position.set(b.x + sw * b.h * 0.3, -lq - cl * b.h * 0.3, b.z);
+        dm.rotation.set(
+          cl * 0.5 * (i % 2 ? 1 : -1),
+          0,
+          sw + (lq ? lq * 0.18 * (i % 2 ? 1 : -1) : 0) + cl * 0.4 * (i % 2 ? -1 : 1)
+        );
+        dm.scale.set(b.w, b.h * (1 - cl * 0.4), b.w);
+        dm.updateMatrix();
+        city.setMatrixAt(i, dm.matrix);
+      });
+      city.instanceMatrix.needsUpdate = true;
+
+      // 3. Ground & Geology
+      (ground.material as THREE.MeshStandardMaterial).color.setHex(0x8aa860).lerp(cc.setHex(0x7a6a4a), liq);
+      (mud.material as THREE.MeshStandardMaterial).opacity = liq * 0.7;
+      layer.position.x = -12.25 + (m === "quake" && run ? Math.min(S.slip * 0.04, 1) * prog : 0);
+      layer.position.z = m === "quake" && run ? Math.sin(t * 3) * shake * 0.03 : 0;
+
+      // Fault cracks
+      ck.forEach((k) => {
+        const v =
+          (m === "quake" || m === "liquefaction") && t > 0
+            ? Math.min(1, t / dur) * Math.min(1, c.pga / 0.35)
+            : 0;
+        k.scale.x = Math.max(0.001, v * (k.userData.L as number));
       });
 
-      // Animate Trees (Swaying in wind, violent whipping during quake)
-      treeList.forEach((tree, idx) => {
-        const windSway = Math.sin(elapsed * 2.2 + idx) * 0.04;
-        const quakeSway = isSimulating ? Math.sin(elapsed * 18 + idx) * 0.22 : 0;
-        tree.rotation.z = windSway + quakeSway;
-      });
+      // 4. Bridge Vibration & Breakage over the Strait
+      const bk = m === "quake" && run ? Math.max(0, Math.min(1, (c.pga - 0.85) / 0.5)) * prog : 0;
+      deck.position.y = 1.35 + Math.sin(t * 14) * shake * 0.08 - bk * 0.7;
+      deck.rotation.z = bk * 0.35;
 
-      // Animate Seismic Wavefronts
-      if (pWaveMeshRef.current && sWaveMeshRef.current) {
-        const isWaveActive = isSimulating && (activeDisaster === "EARTHQUAKE" || activeDisaster === "TSUNAMI");
-        pWaveMeshRef.current.visible = isWaveActive;
-        sWaveMeshRef.current.visible = isWaveActive;
+      // 5. Ocean Current & Tsunami Wave Front
+      const eta = c.eta;
+      const ts = m === "tsunami" && eta !== null;
+      const fx = ts && run ? 26 - 28.5 * Math.min(1, t / eta) : 35;
+      const hit = ts && run ? Math.max(0, Math.min(1, (t - eta) / 6)) : 0;
+      const lvl = Math.min(c.th * 1.2, 4.5);
+      const pos = sea.geometry.attributes.position;
 
-        if (isWaveActive) {
-          const pScale = ((elapsed * 4.6) % 8) * 3.6 + 1;
-          pWaveMeshRef.current.scale.set(pScale, pScale, pScale);
-          (pWaveMeshRef.current.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.45 - pScale / 25);
-
-          const sScale = ((elapsed * 2.8) % 8) * 3.0 + 1;
-          sWaveMeshRef.current.scale.set(sScale, sScale, sScale);
-          (sWaveMeshRef.current.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.55 - sScale / 22);
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getZ(i);
+        const wx = 13.5 + x;
+        let y = Math.sin(wx * 0.45 + tm * 1.8) * 0.08 + Math.cos(z * 0.4 + tm * 1.2) * 0.06;
+        if (Math.abs(z - 5.0) < 3.0 && wx < 8.0) {
+          y += Math.sin(wx * 1.2 - tm * 2.5) * 0.04;
         }
+        if (ts && run) {
+          const dist = wx - fx;
+          const spread = dist < 0 ? 2.0 : 6.0;
+          y +=
+            lvl * 0.95 * Math.exp(-Math.pow(dist / spread, 2)) +
+            (Math.abs(dist) < 3.5 ? Math.sin(wx * 4 + tm * 9) * 0.06 * lvl : 0);
+        }
+        pos.setY(i, y);
+
+        const depthFactor = Math.min(1, Math.max(0, (wx + 2.5) / 25));
+        const foam = Math.max(0, Math.min(1, (y - 0.12) / 0.5));
+        sea.geometry.attributes.color.setXYZ(
+          i,
+          0.03 + depthFactor * 0.02 + foam * 0.9,
+          0.35 + depthFactor * 0.15 + foam * 0.65,
+          0.55 + depthFactor * 0.35 + foam * 0.45
+        );
+      }
+      pos.needsUpdate = true;
+      sea.geometry.attributes.color.needsUpdate = true;
+      sea.geometry.computeVertexNormals();
+
+      sea.position.y = -0.3 + lvl * 0.35 * hit;
+      flood.scale.x = Math.max(0.001, hit);
+      flood.position.x = -2.5 - 6.5 * hit;
+      flood.scale.y = 1 + lvl * hit * 0.8;
+
+      // 6. Volcano Island Crater in the Sea
+      const er = m === "volcano" ? Math.min(1, t / 3) * Math.max(0.2, (S.mw - 4) / 4) : 0;
+      (vm as THREE.MeshStandardMaterial).emissiveIntensity = m === "volcano" ? 0.06 + er * 0.22 : 0;
+      lavaMat.color.setHSL(0.045, 1, m === "volcano" ? 0.38 + Math.random() * 0.15 : 0.08);
+      (lavaStream.material as THREE.MeshStandardMaterial).emissiveIntensity =
+        m === "volcano" ? 0.9 + Math.sin(t * 8) * 0.3 : 0.2;
+      vlight.intensity = m === "volcano" ? (1.2 + er * 2.8) * (0.85 + Math.random() * 0.3) : 0;
+
+      // 7. Particle Emissions
+      if (m === "volcano" && run) {
+        // Glowing magma bombs
+        for (let k = 0; k < Math.floor(er * 7); k++) {
+          emit(
+            0,
+            13 + (Math.random() - 0.5) * 0.9,
+            5.1,
+            (Math.random() - 0.5) * 0.9,
+            (Math.random() - 0.5) * 3,
+            5 + Math.random() * 5 * er,
+            (Math.random() - 0.5) * 3,
+            1.8
+          );
+        }
+        // Billowing volcanic plume
+        if (Math.random() < er * 1.6) {
+          emit(
+            1,
+            13 + (Math.random() - 0.5),
+            5.3,
+            (Math.random() - 0.5),
+            0.4 + Math.random() * 0.6,
+            2.5 + Math.random() * 2.5,
+            Math.random() - 0.5,
+            6
+          );
+        }
+        // Falling ash
+        emit(2, -10 + Math.random() * 26, 14, -10 + Math.random() * 20, 0, -1.2, 0, 10);
       }
 
-      // Animate Dynamic Tsunami Ocean Waves
-      if (waterMeshRef.current && foamMeshRef.current) {
-        const isTsunamiSim = isSimulating && (activeDisaster === "TSUNAMI" || isTsunamiActive);
-        const pos = waterMeshRef.current.geometry.attributes.position;
-        const count = pos.count;
-        const waveSpeed = isTsunamiSim ? 5.2 : 1.6;
-        const waveAmp = isTsunamiSim ? Math.min(5.2, 1.2 + slipMeters * 0.22) : 0.32;
-
-        for (let i = 0; i < count; i++) {
-          const u = pos.getX(i);
-          const v = pos.getY(i);
-          // Shoaling factor: waves grow taller as they approach shallow shoreline (u near 0)
-          const shoaling = 1.0 + Math.max(0, (20 - u) * 0.04);
-          const waveHeight =
-            (Math.sin(u * 0.38 - elapsed * waveSpeed) * waveAmp +
-            Math.sin(u * 0.72 + v * 0.22 - elapsed * (waveSpeed * 1.25)) * (waveAmp * 0.38) +
-            Math.cos(v * 0.35 + elapsed * 1.7) * (waveAmp * 0.22)) * shoaling;
-          pos.setZ(i, waveHeight);
-        }
-        pos.needsUpdate = true;
-        waterMeshRef.current.geometry.computeVertexNormals();
-
-        // Shoreline Foam surge (dynamic tidal wash)
-        foamMeshRef.current.position.y = 2.35 + (isTsunamiSim ? Math.sin(elapsed * 4.5) * 1.5 : Math.sin(elapsed * 1.8) * 0.18);
+      // Building collapse rubble dust
+      if (shake > 0.15 && Math.random() < shake) {
+        const b = Bd[(Math.random() * N) | 0];
+        emit(3, b.x, b.h, b.z, Math.random() - 0.5, 1.2, Math.random() - 0.5, 2);
       }
 
-      // Animate Volcano Ash & Lava Bombs
-      if (ashParticlesRef.current && lavaBombGroupRef.current) {
-        const isVolcanoActive = isSimulating && activeDisaster === "VOLCANO";
-        ashParticlesRef.current.visible = isVolcanoActive || activeDisaster === "VOLCANO";
-
-        if (isVolcanoActive || activeDisaster === "VOLCANO") {
-          const aPos = ashParticlesRef.current.geometry.attributes.position;
-          for (let a = 0; a < aPos.count; a++) {
-            let y = aPos.getY(a) + delta * (isVolcanoActive ? 9.0 : 3.5);
-            let x = aPos.getX(a) + (Math.random() - 0.5) * 0.2 - delta * 1.5; // wind drift
-            if (y > 36) {
-              y = 14.5;
-              x = 24 + (Math.random() - 0.5) * 4;
-            }
-            aPos.setY(a, y);
-            aPos.setX(a, x);
-          }
-          aPos.needsUpdate = true;
-
-          // Ballistic Lava Bombs Launch
-          lavaBombGroupRef.current.visible = isVolcanoActive;
-          if (isVolcanoActive) {
-            lavaBombGroupRef.current.children.forEach((bomb, bIdx) => {
-              const bTime = (elapsed * 2.0 + bIdx * 0.4) % 3.0;
-              const arcX = 24 - bTime * (2.0 + bIdx * 0.3);
-              const arcY = 14.5 + Math.sin(bTime * Math.PI) * 12.0 - bTime * 3.0;
-              const arcZ = -12 + Math.cos(bIdx) * 5.0;
-              bomb.position.set(arcX, Math.max(3.0, arcY), arcZ);
-            });
-          }
+      // Particle physics update
+      for (let i = 0; i < NP; i++) {
+        if (pl[i] <= 0) continue;
+        pl[i] -= dt;
+        const j = i * 3;
+        const k = pk[i];
+        if (pl[i] <= 0) {
+          pp[j + 1] = -100;
+          continue;
+        }
+        pv[j + 1] -= (k === 0 ? 9 : k === 1 ? -0.8 : 0) * dt;
+        pp[j] += pv[j] * dt;
+        pp[j + 1] += pv[j + 1] * dt;
+        pp[j + 2] += pv[j + 2] * dt;
+        if (k === 0 && pp[j + 1] < -0.3) {
+          pl[i] = 0;
+          pp[j + 1] = -100;
+        }
+        const L = pl[i] / pL0[i];
+        let r: number, g: number, b: number, s: number, a: number;
+        if (k === 0) {
+          r = 1;
+          g = 0.35 + 0.45 * L;
+          b = 0.08;
+          s = 0.25;
+          a = 1;
+        } else if (k === 1) {
+          r = g = b = 0.2 + 0.3 * (1 - L);
+          s = 0.8 + (1 - L) * 2.6;
+          a = 0.6 * L;
+        } else if (k === 2) {
+          r = g = b = 0.55;
+          s = 0.22;
+          a = 0.7 * Math.min(1, L * 3);
         } else {
-          lavaBombGroupRef.current.visible = false;
+          r = 0.72;
+          g = 0.64;
+          b = 0.52;
+          s = 0.5 + (1 - L) * 2;
+          a = 0.55 * L;
         }
+        pc[j] = r;
+        pc[j + 1] = g;
+        pc[j + 2] = b;
+        ps[i] = s;
+        pa[i] = a;
       }
+      pg.attributes.position.needsUpdate = true;
+      pg.attributes.color.needsUpdate = true;
+      pg.attributes.sz.needsUpdate = true;
+      pg.attributes.al.needsUpdate = true;
 
-      // Animate Smoke & Fire (Earthquake Collapse)
-      if (smokeParticlesRef.current && fireParticlesRef.current) {
-        const isFireActive = isSimulating && (activeDisaster === "EARTHQUAKE" || magnitude >= 6.8);
-        smokeParticlesRef.current.visible = isFireActive;
-        fireParticlesRef.current.visible = isFireActive;
+      // 8. Day & Night Transition
+      const n = S.night ? 1 : 0;
+      bgc.copy(dayC).lerp(nightC, n);
+      scene.background = S.night ? skyN : skyD;
+      scene.fog!.color.copy(bgc);
+      hemi.intensity = 0.85 - 0.6 * n;
+      sun.intensity = 0.95 - 0.75 * n;
+      (bm as THREE.MeshStandardMaterial).emissiveIntensity = 0.55 * n;
 
-        if (isFireActive) {
-          const sPos = smokeParticlesRef.current.geometry.attributes.position;
-          for (let s = 0; s < sPos.count; s++) {
-            let y = sPos.getY(s) + delta * 4.5;
-            if (y > 24) y = 4.0;
-            sPos.setY(s, y);
-          }
-          sPos.needsUpdate = true;
-
-          const fPos = fireParticlesRef.current.geometry.attributes.position;
-          for (let f = 0; f < fPos.count; f++) {
-            let y = fPos.getY(f) + delta * 6.5;
-            if (y > 11) y = 4.0;
-            fPos.setY(f, y);
-          }
-          fPos.needsUpdate = true;
-        }
+      // 9. Camera Smooth Lerp Transition
+      if (camLerpWeight.current > 0) {
+        camLerpWeight.current -= dt;
+        camera.position.lerp(targetCamPos.current, 0.07);
+        controls.target.lerp(targetCamLook.current, 0.07);
       }
-
-      // Animate Liquefaction Geysers
-      if (geyserParticlesRef.current) {
-        const isLiqActive = isSimulating && activeDisaster === "LIQUEFACTION";
-        geyserParticlesRef.current.visible = isLiqActive;
-        if (isLiqActive) {
-          const gPos = geyserParticlesRef.current.geometry.attributes.position;
-          for (let g = 0; g < gPos.count; g++) {
-            let y = gPos.getY(g) + delta * 5.0;
-            if (y > 8.0) y = 3.8;
-            gPos.setY(g, y);
-          }
-          gPos.needsUpdate = true;
-        }
-      }
-
-      // Active Ground Tremor, Rupture & Building Collapse Physics
-      if (isSimulating) {
-        const tremorAmp = (magnitude - 4.0) * 0.14;
-        const shakeX = (Math.random() - 0.5) * tremorAmp;
-        const shakeZ = (Math.random() - 0.5) * tremorAmp;
-
-        // Ground Shaking
-        if (mainlandGroupRef.current) {
-          mainlandGroupRef.current.position.x = shakeX;
-          mainlandGroupRef.current.position.z = shakeZ;
-        }
-
-        // Tectonic Plate Dislocation
-        if (oceanGroupRef.current) {
-          if (mechanism === "SUBDUCTION" || activeDisaster === "TSUNAMI") {
-            oceanGroupRef.current.position.y = -Math.sin(elapsed * 5.5) * 1.4 - slipMeters * 0.14;
-          } else {
-            oceanGroupRef.current.position.z = Math.sin(elapsed * 5.5) * 1.6 + slipMeters * 0.16;
-          }
-        }
-
-        // Surface Crevices Ripping Open
-        fissuresRef.current.forEach((fissure) => {
-          const ripWidth = Math.min(3.8, 0.4 + slipMeters * 0.2);
-          fissure.scale.x = ripWidth;
-        });
-
-        // Building Dynamics (Real structural fracture, shearing, pancake collapse & rubble debris)
-        buildingsRef.current.forEach((bObj, idx) => {
-          const { group: b, podium, upperSection, rubbleGroup } = bObj;
-
-          if (activeDisaster === "LIQUEFACTION") {
-            // Sinking into fluidized soil & dramatic toppling (bearing capacity failure)
-            bObj.collapseProgress = Math.min(1.0, bObj.collapseProgress + delta * 0.45);
-            const p = bObj.collapseProgress;
-            b.position.y = bObj.initY - p * (bObj.height * 0.45);
-            b.rotation.z = p * (0.45 * bObj.tiltDir);
-            b.rotation.x = p * 0.22 * (idx % 2 === 0 ? 1 : -1);
-            rubbleGroup.scale.setScalar(p);
-          } else if (activeDisaster === "TSUNAMI") {
-            // Tsunami hydrodynamic wave force demolishes coastal buildings
-            const isCoastal = idx % 4 <= 1;
-            if (isCoastal && (isSimulating || isTsunamiActive)) {
-              bObj.collapseProgress = Math.min(1.0, bObj.collapseProgress + delta * 0.65);
-              const p = bObj.collapseProgress;
-              // Push building inland with violent wave impact
-              b.rotation.z = -p * 0.45;
-              upperSection.rotation.z = -p * 0.4;
-              upperSection.position.x = -p * 2.4;
-              podium.scale.y = Math.max(0.25, 1.0 - p * 0.65);
-              rubbleGroup.scale.setScalar(p);
-            }
-          } else {
-            // EARTHQUAKE DYNAMICS
-            const swayZ = Math.sin(elapsed * 15 + idx) * (tremorAmp * 0.45);
-            const swayX = Math.cos(elapsed * 13 + idx) * (tremorAmp * 0.35);
-
-            // Structural failure threshold: high magnitude quakes cause real destruction
-            const shouldCollapse = magnitude >= bObj.collapseThreshold;
-            if (shouldCollapse) {
-              bObj.collapseProgress = Math.min(
-                1.0,
-                bObj.collapseProgress + delta * (0.35 + (magnitude - 6.5) * 0.25)
-              );
-              const p = bObj.collapseProgress;
-
-              // 1. Lower podium pancakes down into flattened rubble mound
-              podium.scale.y = Math.max(0.18, 1.0 - p * 0.82);
-              podium.position.y = -p * (bObj.height * 0.15);
-
-              // 2. Upper section shears, snaps, tilts at sharp angle and slides down
-              upperSection.rotation.z = swayZ + p * (0.55 * bObj.tiltDir);
-              upperSection.rotation.x = swayX + p * 0.22;
-              upperSection.position.x = p * (2.2 * bObj.tiltDir);
-              upperSection.position.y = (-bObj.height / 2 + (bObj.height * 0.45) * (1.0 - p * 0.8)) - p * 1.6;
-
-              // 3. Rubble burst outward around the building footprint
-              rubbleGroup.scale.setScalar(Math.min(1.0, p * 1.5));
-
-              // 4. Building overall height drops into genuine ruins
-              b.position.y = Math.max(3.8, bObj.initY - p * (bObj.height * 0.45));
-              b.rotation.z = swayZ + p * (0.15 * bObj.tiltDir);
-              b.rotation.x = swayX;
-            } else {
-              // Mild quake: structural resonance sway without collapse
-              b.rotation.z = swayZ;
-              b.rotation.x = swayX;
-            }
-          }
-        });
-
-        // Bridge Structural Strain
-        if (bridgeRef.current) {
-          bridgeRef.current.rotation.z = Math.sin(elapsed * 9) * (tremorAmp * 0.65);
-        }
-
-        // Power Grid Arc Flash & Blackout
-        if (cityLightRef.current) {
-          cityLightRef.current.intensity = Math.random() > 0.65 ? 3.5 : 0.05;
-        }
-      } else {
-        // Reset to Calm Resting State (Smooth Reconstruction)
-        if (mainlandGroupRef.current) mainlandGroupRef.current.position.set(0, 0, 0);
-        if (oceanGroupRef.current) oceanGroupRef.current.position.set(0, 0, 0);
-        buildingsRef.current.forEach((bObj) => {
-          if (bObj.collapseProgress > 0) {
-            bObj.collapseProgress = Math.max(0, bObj.collapseProgress - delta * 1.5);
-          }
-          const p = bObj.collapseProgress;
-          bObj.group.position.y = bObj.initY - p * (bObj.height * 0.45);
-          bObj.group.rotation.set(0, 0, 0);
-          bObj.podium.scale.y = Math.max(0.18, 1.0 - p * 0.82);
-          bObj.podium.position.y = 0;
-          bObj.upperSection.rotation.set(0, 0, 0);
-          bObj.upperSection.position.set(0, -bObj.height / 2 + bObj.height * 0.45, 0);
-          bObj.rubbleGroup.scale.setScalar(Math.max(0.001, p * 1.5));
-        });
-        if (bridgeRef.current) bridgeRef.current.rotation.set(0, 0, 0);
-        if (cityLightRef.current) cityLightRef.current.intensity = timeOfDay === "NIGHT" ? 3.2 : 1.8;
-        fissuresRef.current.forEach((f) => (f.scale.x = 0.1));
-      }
-
+      controls.update();
       renderer.render(scene, camera);
+
+      // 10. Warning Banner Message
+      let bannerMsg = "";
+      if (run) {
+        if (m === "quake" && c.pga > 0.6 && t < dur + 3) {
+          bannerMsg = "🚨 KERUNTUHAN STRUKTUR: GETARAN SEISMIK EKSTREM (PGA > 0.6g)";
+        } else if (m === "tsunami" && eta !== null) {
+          bannerMsg =
+            t < eta
+              ? `🌊 PERINGATAN DINI: Tsunami tiba dalam ${(eta - t).toFixed(1)} menit!`
+              : "🌊 TSUNAMI MENERJANG DARATAN & JEMBATAN KOTA!";
+        } else if (m === "tsunami") {
+          bannerMsg = "ℹ️ Tidak ada potensi tsunami destruktif (bukan subduksi megathrust dangkal)";
+        } else if (m === "volcano") {
+          bannerMsg = "🌋 ERUPSI GUNUNG BERAPI: Awan panas piroklastik & semburan magma!";
+        } else if (m === "liquefaction" && liq > 0.2) {
+          bannerMsg = "💧 LIKUIFAKSI TANAH: Tanah jenuh air mencair & fondasi kota amblas!";
+        }
+      }
+      setWarningBanner(bannerMsg);
+
+      // 11. Seismograph Drawing Engine
+      seismoFrameCount++;
+      if (seismoFrameCount % 2 === 0 && seismoCanvasRef.current) {
+        const sctx = seismoCanvasRef.current.getContext("2d");
+        if (sctx) {
+          seismoHist.shift();
+          seismoHist.push(run ? (Math.random() * 2 - 1) * Math.min(1, shake * 0.9 + 0.03) : (Math.random() - 0.5) * 0.04);
+          sctx.clearRect(0, 0, 260, 52);
+
+          // Grid line
+          sctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+          sctx.lineWidth = 1;
+          sctx.beginPath();
+          sctx.moveTo(0, 26);
+          sctx.lineTo(260, 26);
+          sctx.stroke();
+
+          // Waveform
+          sctx.strokeStyle = c.pga > 0.6 ? "#ef4444" : c.pga > 0.3 ? "#f59e0b" : "#38bdf8";
+          sctx.lineWidth = 1.6;
+          sctx.beginPath();
+          seismoHist.forEach((v, idx) => {
+            if (idx === 0) sctx.moveTo(idx, 26);
+            else sctx.lineTo(idx, 26 + v * 24);
+          });
+          sctx.stroke();
+        }
+      }
     };
 
-    animFrameId = requestAnimationFrame(animate);
+    animId = requestAnimationFrame(frame);
 
+    // Cleanup on unmount
     return () => {
-      cancelAnimationFrame(animFrameId);
+      cancelAnimationFrame(animId);
       window.removeEventListener("resize", handleResize);
-      if (container && renderer.domElement) {
+      renderer.dispose();
+      gt.dispose();
+      skyD.dispose();
+      skyN.dispose();
+      if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
-      renderer.dispose();
     };
-  }, [magnitude, depthKm, slipMeters, isTsunamiActive, isSimulating, mechanism, activeDisaster, timeOfDay]);
+  }, []);
 
-  // Camera Presets
-  const handleSetCameraView = (view: CameraPreset) => {
-    setCameraView(view);
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    if (!camera || !controls) return;
+  const toggleRun = () => {
+    const nextState = !isSimulating;
+    onSimulatingChange?.(nextState);
+    stateRef.current.run = nextState;
+  };
 
-    if (view === "orbit") {
-      camera.position.set(52, 42, 68);
-      controls.target.set(0, 0, 0);
-    } else if (view === "city") {
-      // Street level view of skyscrapers & collapse
-      camera.position.set(-16, 16, 26);
-      controls.target.set(-14, 6, -5);
-    } else if (view === "coast") {
-      // Tsunami coastal runup view
-      camera.position.set(16, 12, 34);
-      controls.target.set(4, 3, -5);
-    } else if (view === "volcano") {
-      // High altitude view of Stratovolcano caldera
-      camera.position.set(24, 26, 18);
-      controls.target.set(24, 14, -12);
-    } else if (view === "fault") {
-      // Subterranean crust & magma chamber view
-      camera.position.set(0, -6, 56);
-      controls.target.set(0, -6, 0);
-    }
-    controls.update();
+  const handleReset = () => {
+    onSimulatingChange?.(false);
+    stateRef.current.run = false;
+    stateRef.current.t = 0;
+    setSimTime(0);
+    setWarningBanner("");
   };
 
   return (
-    <div className="relative w-full h-full min-h-[520px] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl">
-      {/* 3D Canvas Mount */}
+    <div
+      className={cn(
+        "relative w-full h-full min-h-[460px] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl transition-all duration-300 select-none",
+        isFullscreen && "fixed inset-0 z-50 rounded-none border-none min-h-screen"
+      )}
+    >
+      {/* 3D Canvas Mount Point */}
       <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
 
-      {/* Top Left: Simulation Telemetry & Active Disaster Type */}
-      <div className="absolute top-4 left-4 pointer-events-none flex flex-col gap-1.5 font-mono z-20">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/90 border border-slate-800 text-[11px] text-rose-400 backdrop-blur-md shadow-xl">
+      {/* Warning Alert Banner (Top Center) */}
+      {warningBanner && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none animate-pulse">
+          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-rose-600/95 text-white font-bold text-xs tracking-wide shadow-lg shadow-rose-600/50 backdrop-blur-md border border-rose-400/30">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-white" />
+            <span>{warningBanner}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Top Left: HUD Status & Mode Selection */}
+      <div className="absolute top-3 left-3 z-20 flex flex-col gap-2 max-w-[280px]">
+        {/* Title badge */}
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-750/70 backdrop-blur-md text-slate-200">
           <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
-          <span className="font-bold">
-            PHYSICS ENGINE 3D: {activeDisaster}
+          <span className="text-[11px] font-bold tracking-tight text-white uppercase font-mono">
+            3D DISASTER SIMULATOR
+          </span>
+          <span className="text-[10px] text-slate-400 font-mono ml-auto">
+            {simTime > 0 ? `${simTime.toFixed(1)}s` : "STANDBY"}
           </span>
         </div>
-        <div className="text-[10px] text-slate-300 bg-slate-950/85 px-2.5 py-1 rounded-lg border border-slate-800 backdrop-blur-sm">
-          Hiposenter: -{depthKm} km &bull; Slip: {slipMeters} m &bull; Magnitudo: M {magnitude.toFixed(1)}
+
+        {/* Disaster Mode Switcher */}
+        <div className="p-1 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md flex flex-wrap gap-1">
+          {(
+            [
+              { id: "EARTHQUAKE", label: "⚡ Gempa" },
+              { id: "TSUNAMI", label: "🌊 Tsunami" },
+              { id: "VOLCANO", label: "🌋 Gunung Api" },
+              { id: "LIQUEFACTION", label: "💧 Likuifaksi" },
+            ] as const
+          ).map((m) => {
+            const isSelected = activeDisaster === m.id;
+            return (
+              <button
+                key={m.id}
+                onClick={() => handleSelectMode(m.id)}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all",
+                  isSelected
+                    ? "bg-rose-600/80 text-white font-semibold shadow-sm border border-rose-500/50"
+                    : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                )}
+              >
+                {m.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Top Center: Multi-Disaster Mode Tabs */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-slate-950/90 border border-slate-800 p-1 rounded-xl backdrop-blur-md shadow-2xl text-[11px] font-mono">
-        <button
-          onClick={() => handleDisasterSelect("EARTHQUAKE")}
-          className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all ${
-            activeDisaster === "EARTHQUAKE"
-              ? "bg-rose-600 text-white font-bold shadow-md shadow-rose-900/50"
-              : "text-slate-400 hover:text-white"
-          }`}
-          title="Simulasi gempa bumi sesar & keruntuhan kota"
-        >
-          <Building2 className="h-3 w-3" />
-          <span>Gempa Bumi</span>
-        </button>
-        <button
-          onClick={() => handleDisasterSelect("TSUNAMI")}
-          className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all ${
-            activeDisaster === "TSUNAMI"
-              ? "bg-cyan-600 text-white font-bold shadow-md shadow-cyan-900/50"
-              : "text-slate-400 hover:text-white"
-          }`}
-          title="Simulasi deformasi megathrust & gelombang tsunami pesisir"
-        >
-          <Waves className="h-3 w-3" />
-          <span>Tsunami</span>
-        </button>
-        <button
-          onClick={() => handleDisasterSelect("VOLCANO")}
-          className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all ${
-            activeDisaster === "VOLCANO"
-              ? "bg-amber-600 text-white font-bold shadow-md shadow-amber-900/50"
-              : "text-slate-400 hover:text-white"
-          }`}
-          title="Simulasi erupsi gunung berapi, awan panas & lontaran bom lava"
-        >
-          <Mountain className="h-3 w-3" />
-          <span>Gunung Berapi</span>
-        </button>
-        <button
-          onClick={() => handleDisasterSelect("LIQUEFACTION")}
-          className={`px-2.5 py-1 rounded-lg flex items-center gap-1.5 transition-all ${
-            activeDisaster === "LIQUEFACTION"
-              ? "bg-emerald-600 text-white font-bold shadow-md shadow-emerald-900/50"
-              : "text-slate-400 hover:text-white"
-          }`}
-          title="Simulasi likuifaksi tanah mencair & bangunan amblas"
-        >
-          <Droplets className="h-3 w-3" />
-          <span>Likuifaksi</span>
-        </button>
-      </div>
+      {/* Top Right: Camera Angles & Visual Tools */}
+      <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-2">
+        {/* Control Action Buttons */}
+        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md">
+          {/* Day / Night Toggle */}
+          <button
+            onClick={() => setIsNight(!isNight)}
+            title={isNight ? "Beralih ke Siang" : "Beralih ke Malam"}
+            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+          >
+            {isNight ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-sky-300" />}
+          </button>
 
-      {/* Top Right: Camera Presets, Time of Day & Audio Toggle */}
-      <div className="absolute top-4 right-4 z-20 flex flex-col items-end gap-2">
-        {/* Camera Views */}
-        <div className="flex items-center gap-1 bg-slate-950/90 border border-slate-800 p-1 rounded-xl backdrop-blur-md shadow-2xl text-[11px] font-mono">
-          <button
-            onClick={() => handleSetCameraView("orbit")}
-            className={`px-2 py-1 rounded-lg flex items-center gap-1 transition-all ${
-              cameraView === "orbit" ? "bg-rose-600 text-white font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Orbit 360°"
-          >
-            <Camera className="h-3 w-3" />
-            <span>Orbit</span>
-          </button>
-          <button
-            onClick={() => handleSetCameraView("city")}
-            className={`px-2 py-1 rounded-lg flex items-center gap-1 transition-all ${
-              cameraView === "city" ? "bg-rose-600 text-white font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Kamera Gedung & Jalanan Kota"
-          >
-            <Building2 className="h-3 w-3" />
-            <span>Kota</span>
-          </button>
-          <button
-            onClick={() => handleSetCameraView("coast")}
-            className={`px-2 py-1 rounded-lg flex items-center gap-1 transition-all ${
-              cameraView === "coast" ? "bg-rose-600 text-white font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Pesisir & Gelombang Tsunami"
-          >
-            <Waves className="h-3 w-3" />
-            <span>Pesisir</span>
-          </button>
-          <button
-            onClick={() => handleSetCameraView("volcano")}
-            className={`px-2 py-1 rounded-lg flex items-center gap-1 transition-all ${
-              cameraView === "volcano" ? "bg-rose-600 text-white font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Kawah Gunung Berapi"
-          >
-            <Mountain className="h-3 w-3" />
-            <span>Kawah</span>
-          </button>
-          <button
-            onClick={() => handleSetCameraView("fault")}
-            className={`px-2 py-1 rounded-lg flex items-center gap-1 transition-all ${
-              cameraView === "fault" ? "bg-rose-600 text-white font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Penampang Sesar & Magma"
-          >
-            <Layers className="h-3 w-3" />
-            <span>Sesar</span>
-          </button>
-        </div>
-
-        {/* Time of Day & Audio Controls */}
-        <div className="flex items-center gap-1.5 bg-slate-950/90 border border-slate-800 p-1 rounded-xl backdrop-blur-md shadow-2xl text-[11px] font-mono">
-          <button
-            onClick={() => setTimeOfDay("DAY")}
-            className={`p-1.5 rounded-lg transition-all ${
-              timeOfDay === "DAY" ? "bg-amber-500 text-slate-950 font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Waktu: Siang Hari"
-          >
-            <Sun className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => setTimeOfDay("DUSK")}
-            className={`p-1.5 rounded-lg transition-all ${
-              timeOfDay === "DUSK" ? "bg-rose-600 text-white font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Waktu: Senja / Golden Hour"
-          >
-            <Sunset className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => setTimeOfDay("NIGHT")}
-            className={`p-1.5 rounded-lg transition-all ${
-              timeOfDay === "NIGHT" ? "bg-indigo-600 text-white font-bold" : "text-slate-400 hover:text-white"
-            }`}
-            title="Waktu: Malam Badai"
-          >
-            <Moon className="h-3.5 w-3.5" />
-          </button>
-          <div className="h-3 w-px bg-slate-800 mx-0.5" />
+          {/* Sound Toggle */}
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-1.5 rounded-lg transition-all ${
-              soundEnabled ? "text-rose-400 hover:bg-rose-950/40" : "text-slate-500"
-            }`}
-            title={soundEnabled ? "Audio Aktif (Suara Gempa/Erupsi)" : "Audio Dimatikan"}
+            title={soundEnabled ? "Mute Suara" : "Aktifkan Sirine & Efek Suara"}
+            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            {soundEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+            {soundEnabled ? (
+              <Volume2 className="h-4 w-4 text-emerald-400" />
+            ) : (
+              <VolumeX className="h-4 w-4 text-slate-500" />
+            )}
+          </button>
+
+          {/* Fullscreen Toggle */}
+          <button
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            title={isFullscreen ? "Keluar Fullscreen" : "Fullscreen"}
+            className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+          >
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
         </div>
-      </div>
 
-      {/* Bottom Left: Live Seismograph Display */}
-      <div className="absolute bottom-4 left-4 z-20 flex flex-col gap-1 pointer-events-none">
-        <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-2 backdrop-blur-md shadow-2xl">
-          <div className="flex items-center justify-between gap-2 text-[9px] font-mono text-slate-400 mb-1">
-            <span className="flex items-center gap-1 font-bold text-rose-400">
-              <Radio className="h-2.5 w-2.5 animate-pulse" /> SEISMOGRAM REAL-TIME
-            </span>
-            <span className="text-[8px] text-slate-500">60 Hz FILTERED</span>
+        {/* Camera Presets Bar */}
+        <div className="p-1 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md flex flex-col gap-1 text-right">
+          <span className="text-[10px] font-mono font-semibold text-slate-400 px-2 py-0.5 uppercase flex items-center justify-end gap-1">
+            <Camera className="h-3 w-3 text-sky-400" />
+            <span>Kamera:</span>
+          </span>
+          <div className="flex flex-col gap-0.5">
+            {(
+              [
+                { id: "orbit", label: "🌐 Orbit Selat" },
+                { id: "city", label: "🏙️ Kota & Gedung" },
+                { id: "coast", label: "🏖️ Pesisir & Jembatan" },
+                { id: "crater", label: "🌋 Kawah Gunung Api" },
+                { id: "fault", label: "🪨 Sesar & Patahan" },
+              ] as const
+            ).map((c) => {
+              const isSelected = cameraView === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => switchCamera(c.id)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-[10px] font-medium text-right transition-all",
+                    isSelected
+                      ? "bg-sky-500/20 text-sky-300 font-semibold border border-sky-400/40"
+                      : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+                  )}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
           </div>
-          <canvas
-            ref={seismoCanvasRef}
-            width={210}
-            height={52}
-            className="rounded border border-slate-900 bg-slate-950"
-          />
         </div>
       </div>
 
-      {/* Bottom Center: Disaster Effect Notification Pills */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-2 font-mono text-[10px]">
-        {activeDisaster === "TSUNAMI" && (
-          <span className="px-3 py-1 rounded-xl bg-cyan-950/90 border border-cyan-500/50 text-cyan-300 font-bold flex items-center gap-1.5 shadow-xl backdrop-blur-md">
-            <Waves className="h-3.5 w-3.5 animate-pulse text-cyan-400" />
-            <span>INUNDASI DEFORMASI GELOMBANG TSUNAMI</span>
+      {/* Bottom Left: Live Seismogram Oscillograph */}
+      <div className="absolute bottom-3 left-3 z-20 flex flex-col gap-1 p-2 rounded-xl bg-slate-900/90 border border-slate-800 backdrop-blur-md w-[276px]">
+        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 px-1">
+          <span className="flex items-center gap-1.5 text-slate-300 font-bold">
+            <Activity className="h-3.5 w-3.5 text-rose-500" />
+            <span>SEISMOGRAM LIVE</span>
           </span>
-        )}
-        {activeDisaster === "VOLCANO" && (
-          <span className="px-3 py-1 rounded-xl bg-amber-950/90 border border-amber-500/50 text-amber-300 font-bold flex items-center gap-1.5 shadow-xl backdrop-blur-md">
-            <Flame className="h-3.5 w-3.5 animate-pulse text-amber-400" />
-            <span>ERUPSI EKSPLOSIF: AWAN PANAS &amp; BOM LAVA</span>
-          </span>
-        )}
-        {activeDisaster === "LIQUEFACTION" && (
-          <span className="px-3 py-1 rounded-xl bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 font-bold flex items-center gap-1.5 shadow-xl backdrop-blur-md">
-            <Droplets className="h-3.5 w-3.5 animate-pulse text-emerald-400" />
-            <span>LIKUIFAKSI: TANAH MENCAIR &amp; GEDUNG AMBLAS</span>
-          </span>
-        )}
-        {activeDisaster === "EARTHQUAKE" && magnitude >= 7.0 && (
-          <span className="px-3 py-1 rounded-xl bg-rose-950/90 border border-rose-500/50 text-rose-300 font-bold flex items-center gap-1.5 shadow-xl backdrop-blur-md">
-            <Flame className="h-3.5 w-3.5 animate-pulse text-rose-400" />
-            <span>KERUNTUHAN STRUKTUR, SESAR ROBEK &amp; BLACKOUT</span>
-          </span>
-        )}
+          <span className="text-amber-400 font-bold">PGA: {pgaDisplay}g</span>
+        </div>
+        <canvas
+          ref={seismoCanvasRef}
+          width={260}
+          height={52}
+          className="w-full h-[52px] rounded-lg border border-slate-800/90 bg-slate-950/80 block"
+        />
       </div>
 
-      {/* Bottom Right: Navigation Tips */}
-      <div className="absolute bottom-4 right-4 pointer-events-none flex items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-950/85 px-3 py-1.5 rounded-xl border border-slate-800 backdrop-blur-md">
-        <span>🖱️ Drag Kiri: Putar 360°</span>
-        <span className="text-slate-600">&bull;</span>
-        <span>Scroll: Zoom In/Out</span>
+      {/* Bottom Right: Play / Pause / Reset Interactive Controls */}
+      <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2">
+        <button
+          onClick={handleReset}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-750 text-slate-300 hover:text-white text-xs font-semibold backdrop-blur-md transition-all shadow-md"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span>Reset</span>
+        </button>
+
+        <button
+          onClick={toggleRun}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all shadow-lg backdrop-blur-md",
+            isSimulating
+              ? "bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30"
+              : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30"
+          )}
+        >
+          <Play className={cn("h-4 w-4", isSimulating && "animate-spin")} />
+          <span>{isSimulating ? "Jeda Simulasi" : "Mulai Simulasi"}</span>
+        </button>
+      </div>
+
+      {/* OrbitControls Hint */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none hidden md:block">
+        <span className="text-[10px] text-slate-500/80 font-mono tracking-wider bg-slate-950/60 px-2 py-0.5 rounded-full border border-slate-800/40">
+          Tahan &amp; geser mouse untuk rotasi 3D • Scroll untuk zoom
+        </span>
       </div>
     </div>
   );
