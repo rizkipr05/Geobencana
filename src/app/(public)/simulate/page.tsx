@@ -39,7 +39,7 @@ interface Preset {
   depthKm: number;
   slipMeters: number;
   mechanism: "SUBDUCTION" | "STRIKE_SLIP" | "NORMAL";
-  disasterType: "EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION";
+  disasterType: "EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION" | "WILDFIRE";
   description: string;
 }
 
@@ -94,6 +94,16 @@ const PRESETS: Preset[] = [
     disasterType: "TSUNAMI",
     description: "Zona seismic gap Mentawai, deformasi lempeng subduksi memicu tsunami tinggi menuju pesisir Kota Padang.",
   },
+  {
+    name: "Kebakaran Hutan Lereng Barat",
+    location: "Perbukitan Hutan, Lereng Barat",
+    magnitude: 7.8,
+    depthKm: 10,
+    slipMeters: 15,
+    mechanism: "STRIKE_SLIP",
+    disasterType: "WILDFIRE",
+    description: "Skenario rambat api permukaan model Rothermel dari titik api kaki bukit barat laut membakar kawasan hutan & lereng kota.",
+  },
 ];
 
 export default function SimulatePage() {
@@ -105,7 +115,7 @@ export default function SimulatePage() {
   const [depthKm, setDepthKm] = useState<number>(15);
   const [slipMeters, setSlipMeters] = useState<number>(18);
   const [mechanism, setMechanism] = useState<"SUBDUCTION" | "STRIKE_SLIP" | "NORMAL">("SUBDUCTION");
-  const [disasterType, setDisasterType] = useState<"EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION">("TSUNAMI");
+  const [disasterType, setDisasterType] = useState<"EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION" | "WILDFIRE">("TSUNAMI");
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
   const [activePreset, setActivePreset] = useState<string>("Megathrust Selat Sunda");
 

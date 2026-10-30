@@ -1,49 +1,77 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
-  Camera,
+  AlertTriangle,
+  Building2,
+  Camera as CameraIcon,
+  Droplets,
+  Flame,
+  Globe,
+  Maximize,
+  Moon,
+  Mountain,
+  Pause,
   Play,
   RotateCcw,
   Sun,
-  Moon,
   Volume2,
   VolumeX,
-  Activity,
-  Maximize2,
-  Minimize2,
-  Layers,
-  AlertTriangle,
+  Waves,
+  Zap,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  playEarthquakeRumble,
-  playVolcanoBlast,
-  playTsunamiSurge,
-  playTransformerSparks,
-  startEmergencySiren,
-  stopEmergencySiren,
-} from "@/lib/emergency-siren";
 
-export type DisasterMode = "EARTHQUAKE" | "TSUNAMI" | "VOLCANO" | "LIQUEFACTION";
-export type CameraPreset = "orbit" | "city" | "coast" | "crater" | "fault";
+// ============================================================================
+// Types & Props
+// ============================================================================
+export type SimDisasterType =
+  | "EARTHQUAKE"
+  | "TSUNAMI"
+  | "VOLCANO"
+  | "LIQUEFACTION"
+  | "WILDFIRE";
 
-interface SimulationParams {
+export type SimMechanism = "SUBDUCTION" | "STRIKE_SLIP" | "NORMAL";
+
+interface ThreeEarthquakeCanvasProps {
   magnitude: number;
   depthKm: number;
   slipMeters: number;
   isTsunamiActive: boolean;
   isSimulating: boolean;
-  mechanism?: "SUBDUCTION" | "STRIKE_SLIP" | "NORMAL";
-  disasterType?: DisasterMode;
-  onDisasterTypeChange?: (mode: DisasterMode) => void;
-  onSimulatingChange?: (running: boolean) => void;
+  mechanism: SimMechanism;
+  disasterType: SimDisasterType;
+  onDisasterTypeChange: (type: SimDisasterType) => void;
+  onSimulatingChange: (running: boolean) => void;
 }
 
-// Camera presets calibrated for the strait, volcanic island, and mainland bridge
-const CAMERA_PRESETS: Record<CameraPreset, [[number, number, number], [number, number, number]]> = {
+type MechKey = "megathrust" | "strike" | "normal";
+type ModeKey = "quake" | "tsunami" | "volcano" | "liquefaction" | "wildfire";
+type CamKey = "orbit" | "city" | "coast" | "crater" | "fault" | "forest";
+
+interface SimState {
+  mw: number;
+  depth: number;
+  slip: number;
+  mech: MechKey;
+  mode: ModeKey;
+  activeDisaster: SimDisasterType;
+  cam: CamKey;
+  camLerp: number;
+  run: boolean;
+  night: boolean;
+  sound: boolean;
+  t: number;
+}
+
+// ============================================================================
+// Module-level constants (portable from the legacy HTML simulator)
+// ============================================================================
+const CAMERA_PRESETS: Record<CamKey, [[number, number, number], [number, number, number]]> = {
   orbit: [
     [26, 25, 28],
     [0, 2, 0],
@@ -64,131 +92,373 @@ const CAMERA_PRESETS: Record<CameraPreset, [[number, number, number], [number, n
     [-12, -2, 22],
     [-12, -1, 0],
   ],
+  forest: [
+    [-14, 11, 16],
+    [-16, 2, -6],
+  ],
 };
 
+const MODE_BY_DISASTER: Record<SimDisasterType, ModeKey> = {
+  EARTHQUAKE: "quake",
+  TSUNAMI: "tsunami",
+  VOLCANO: "volcano",
+  LIQUEFACTION: "liquefaction",
+  WILDFIRE: "wildfire",
+};
+
+const MECH_BY_MECHANISM: Record<SimMechanism, MechKey> = {
+  SUBDUCTION: "megathrust",
+  STRIKE_SLIP: "strike",
+  NORMAL: "normal",
+};
+
+const CAMERA_BY_DISASTER: Record<SimDisasterType, CamKey> = {
+  EARTHQUAKE: "city",
+  TSUNAMI: "coast",
+  VOLCANO: "crater",
+  LIQUEFACTION: "city",
+  WILDFIRE: "forest",
+};
+
+interface PhysicsResult {
+  e: number;
+  pga: number;
+  th: number;
+  eta: number | null;
+  fireSpreadRate: number;
+  br: number;
+  pw: number;
+  hs: number;
+}
+
+// Rothermel Surface Fire Spread Model included with classic seismic physics
+function computePhysics(s: SimState): PhysicsResult {
+  const e = Math.pow(10, 1.5 * s.mw + 4.8) / 4.184e15;
+  const pga = Math.min(1.5, Math.pow(10, 0.5 * s.mw - 2.2) / (s.depth + 10));
+  const th = s.mech === "megathrust" && s.depth < 70 ? s.slip * 0.4 * (s.mw / 8) * 0.25 : 0;
+  const eta = th > 0 ? (150 / (Math.sqrt(9.8 * 3000) * 3.6)) * 60 : null;
+
+  const r0 = 0.45;
+  const phiWind = Math.pow(Math.max(1, s.mw - 4.0), 1.35) * 0.35;
+  const phiSlope = (s.slip / 15) * 0.85;
+  const fireSpreadRate = r0 * (1 + phiWind + phiSlope);
+
+  return {
+    e,
+    pga,
+    th,
+    eta,
+    fireSpreadRate,
+    br: Math.min(100, pga * 75),
+    pw: Math.min(100, pga * 82),
+    hs: Math.min(100, pga * 88),
+  };
+}
+
+const DISASTER_MODES: { id: SimDisasterType; label: string; Icon: LucideIcon }[] = [
+  { id: "EARTHQUAKE", label: "Gempa", Icon: Zap },
+  { id: "TSUNAMI", label: "Tsunami", Icon: Waves },
+  { id: "VOLCANO", label: "Gunung Api", Icon: Mountain },
+  { id: "LIQUEFACTION", label: "Likuifaksi", Icon: Droplets },
+  { id: "WILDFIRE", label: "Kebakaran Hutan", Icon: Flame },
+];
+
+const CAMERA_ITEMS: { id: CamKey; label: string; Icon: LucideIcon }[] = [
+  { id: "orbit", label: "Orbit Selat", Icon: Globe },
+  { id: "city", label: "Kota & Gedung", Icon: Building2 },
+  { id: "coast", label: "Pesisir & Jembatan", Icon: Waves },
+  { id: "crater", label: "Kawah Gunung Api", Icon: Mountain },
+  { id: "fault", label: "Sesar & Patahan", Icon: Zap },
+  { id: "forest", label: "Hutan & Lereng", Icon: Flame },
+];
+
+// ============================================================================
+// Component
+// ============================================================================
 export function ThreeEarthquakeCanvas({
   magnitude,
   depthKm,
   slipMeters,
-  isTsunamiActive,
   isSimulating,
-  mechanism = "SUBDUCTION",
-  disasterType = "EARTHQUAKE",
+  mechanism,
+  disasterType,
   onDisasterTypeChange,
   onSimulatingChange,
-}: SimulationParams) {
+}: ThreeEarthquakeCanvasProps) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const mountRef = useRef<HTMLDivElement>(null);
-  const seismoCanvasRef = useRef<HTMLCanvasElement>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const seismoRef = useRef<HTMLCanvasElement>(null);
+  const bannerWrapRef = useRef<HTMLDivElement>(null);
+  const bannerTextRef = useRef<HTMLSpanElement>(null);
+  const hudTimeRef = useRef<HTMLSpanElement>(null);
+  const hudPgaRef = useRef<HTMLSpanElement>(null);
 
-  // Local state
-  const [activeDisaster, setActiveDisaster] = useState<DisasterMode>(disasterType);
-  const [cameraView, setCameraView] = useState<CameraPreset>("coast");
-  const [isNight, setIsNight] = useState<boolean>(false);
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-  const [warningBanner, setWarningBanner] = useState<string>("");
-  const [pgaDisplay, setPgaDisplay] = useState<string>("0.00");
-  const [simTime, setSimTime] = useState<number>(0);
+  const [userCam, setUserCam] = useState<{ forDisaster: SimDisasterType; preset: CamKey } | null>(null);
+  const [night, setNight] = useState(false);
+  const [sound, setSound] = useState(true);
 
-  // Sync internal disaster type with prop
-  useEffect(() => {
-    if (disasterType) {
-      setActiveDisaster(disasterType);
-    }
-  }, [disasterType]);
+  // Active camera: user override wins until the disaster mode changes,
+  // otherwise each disaster type derives its recommended viewpoint.
+  const cam: CamKey =
+    userCam && userCam.forDisaster === disasterType ? userCam.preset : CAMERA_BY_DISASTER[disasterType];
 
-  // Sync camera preset when disaster type changes
-  useEffect(() => {
-    if (disasterType === "TSUNAMI") setCameraView("coast");
-    else if (disasterType === "VOLCANO") setCameraView("crater");
-    else if (disasterType === "LIQUEFACTION") setCameraView("city");
-    else if (disasterType === "EARTHQUAKE") setCameraView("city");
-  }, [disasterType]);
-
-  // Handle disaster mode change
-  const handleSelectMode = (mode: DisasterMode) => {
-    setActiveDisaster(mode);
-    onDisasterTypeChange?.(mode);
-  };
-
-  // State refs for animation loop
-  const stateRef = useRef({
-    mw: magnitude,
-    depth: depthKm,
-    slip: slipMeters,
-    mech: mechanism === "SUBDUCTION" ? "megathrust" : mechanism === "NORMAL" ? "normal" : "strike",
-    mode: disasterType.toLowerCase(),
-    cam: cameraView,
-    run: isSimulating,
-    night: isNight,
+  const simRef = useRef<SimState>({
+    mw: 8.8,
+    depth: 15,
+    slip: 18,
+    mech: "megathrust",
+    mode: "tsunami",
+    activeDisaster: "TSUNAMI",
+    cam: "coast",
+    camLerp: 0,
+    run: false,
+    night: false,
+    sound: true,
     t: 0,
   });
 
-  // Keep stateRef in sync with props and state
+  const camTargetsRef = useRef({
+    pos: new THREE.Vector3(...CAMERA_PRESETS.coast[0]),
+    look: new THREE.Vector3(...CAMERA_PRESETS.coast[1]),
+  });
+
+  // Bridge to audio engine living inside the Three.js mount effect
+  const audioApiRef = useRef<{ triggerAudio: () => void; stopSiren: () => void } | null>(null);
+
+  // ---- Props -> mutable sim state synchronization ----
   useEffect(() => {
-    stateRef.current.mw = magnitude;
-    stateRef.current.depth = depthKm;
-    stateRef.current.slip = slipMeters;
-    stateRef.current.mech =
-      mechanism === "SUBDUCTION" ? "megathrust" : mechanism === "NORMAL" ? "normal" : "strike";
-    stateRef.current.mode = activeDisaster === "EARTHQUAKE" ? "quake" : activeDisaster.toLowerCase();
-    stateRef.current.run = isSimulating;
-    stateRef.current.night = isNight;
-    stateRef.current.cam = cameraView;
-  }, [magnitude, depthKm, slipMeters, mechanism, activeDisaster, isSimulating, isNight, cameraView]);
+    const s = simRef.current;
+    s.mw = magnitude;
+    s.depth = depthKm;
+    s.slip = slipMeters;
+  }, [magnitude, depthKm, slipMeters]);
 
-  // Target camera lerping
-  const targetCamPos = useRef(new THREE.Vector3(...CAMERA_PRESETS.coast[0]));
-  const targetCamLook = useRef(new THREE.Vector3(...CAMERA_PRESETS.coast[1]));
-  const camLerpWeight = useRef(0);
-
-  const switchCamera = useCallback((k: CameraPreset) => {
-    setCameraView(k);
-    stateRef.current.cam = k;
-    targetCamPos.current.set(...CAMERA_PRESETS[k][0]);
-    targetCamLook.current.set(...CAMERA_PRESETS[k][1]);
-    camLerpWeight.current = 2.5;
-  }, []);
-
-  // Update camera on preset change
   useEffect(() => {
-    switchCamera(cameraView);
-  }, [cameraView, switchCamera]);
+    simRef.current.mech = MECH_BY_MECHANISM[mechanism];
+  }, [mechanism]);
 
-  // Sound triggers based on simulation state
   useEffect(() => {
-    if (!isSimulating || !soundEnabled) {
-      stopEmergencySiren();
-      return;
+    const s = simRef.current;
+    s.activeDisaster = disasterType;
+    s.mode = MODE_BY_DISASTER[disasterType];
+    if (s.run) audioApiRef.current?.triggerAudio();
+  }, [disasterType]);
+
+  useEffect(() => {
+    const s = simRef.current;
+    s.cam = cam;
+    s.camLerp = 2.5;
+    const [p, l] = CAMERA_PRESETS[cam];
+    camTargetsRef.current.pos.set(p[0], p[1], p[2]);
+    camTargetsRef.current.look.set(l[0], l[1], l[2]);
+  }, [cam]);
+
+  useEffect(() => {
+    const s = simRef.current;
+    s.run = isSimulating;
+    if (isSimulating) audioApiRef.current?.triggerAudio();
+    else audioApiRef.current?.stopSiren();
+  }, [isSimulating]);
+
+  useEffect(() => {
+    simRef.current.night = night;
+  }, [night]);
+
+  useEffect(() => {
+    const s = simRef.current;
+    s.sound = sound;
+    if (!sound) audioApiRef.current?.stopSiren();
+    else if (s.run) audioApiRef.current?.triggerAudio();
+  }, [sound]);
+
+  // ---- UI handlers ----
+  const handleReset = () => {
+    const s = simRef.current;
+    s.run = false;
+    s.t = 0;
+    audioApiRef.current?.stopSiren();
+    if (hudTimeRef.current) hudTimeRef.current.textContent = "STANDBY";
+    if (bannerWrapRef.current) bannerWrapRef.current.classList.add("hidden");
+    onSimulatingChange(false);
+  };
+
+  const toggleRun = () => onSimulatingChange(!isSimulating);
+
+  const toggleNight = () => setNight((v) => !v);
+
+  const toggleSound = () => setSound((v) => !v);
+
+  const toggleFullscreen = () => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    if (!document.fullscreenElement) {
+      el.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
     }
+  };
 
-    if (activeDisaster === "VOLCANO") {
-      playVolcanoBlast(5.0);
-    } else if (activeDisaster === "TSUNAMI" || isTsunamiActive) {
-      playTsunamiSurge(6.5);
-      playEarthquakeRumble(5.0);
-      startEmergencySiren();
-    } else if (activeDisaster === "EARTHQUAKE") {
-      playEarthquakeRumble(5.0);
-      setTimeout(() => playTransformerSparks(), 1400);
-      if (magnitude >= 7.0) startEmergencySiren();
-    } else if (activeDisaster === "LIQUEFACTION") {
-      playEarthquakeRumble(6.0);
-    }
-
-    return () => {
-      stopEmergencySiren();
-    };
-  }, [isSimulating, activeDisaster, isTsunamiActive, soundEnabled, magnitude]);
-
-  // Main Three.js Scene Setup
+  // ============================================================================
+  // Main Three.js scene mount (runs once)
+  // ============================================================================
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
-    // Renderer
+    const S = simRef.current;
+    const camTargets = camTargetsRef.current;
+
+    // ---------------- Web Audio synthesized sound effects ----------------
+    let audioCtx: AudioContext | null = null;
+    let sirenInterval: ReturnType<typeof setInterval> | null = null;
+
+    const ensureAudio = () => {
+      if (!audioCtx) {
+        const AC =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AC) audioCtx = new AC();
+      }
+      if (audioCtx && audioCtx.state === "suspended") {
+        audioCtx.resume().catch(() => {});
+      }
+    };
+
+    const playEarthquakeRumble = (duration = 5.0) => {
+      if (!S.sound) return;
+      ensureAudio();
+      if (!audioCtx) return;
+      const bufferSize = audioCtx.sampleRate * duration;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      let lastOut = 0.0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        data[i] = (lastOut + 0.03 * white) / 1.03;
+        lastOut = data[i];
+        data[i] *= 2.8;
+      }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 95;
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+      noise.start();
+    };
+
+    const playTsunamiSurge = (duration = 6.0) => {
+      if (!S.sound) return;
+      ensureAudio();
+      if (!audioCtx) return;
+      const bufferSize = audioCtx.sampleRate * duration;
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * 0.5;
+      }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = audioCtx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.setValueAtTime(220, audioCtx.currentTime);
+      filter.frequency.linearRampToValueAtTime(480, audioCtx.currentTime + duration * 0.6);
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + duration * 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(audioCtx.destination);
+      noise.start();
+    };
+
+    const playVolcanoBlast = (duration = 5.0) => {
+      playEarthquakeRumble(duration);
+      playTsunamiSurge(duration * 0.8);
+    };
+
+    const playTransformerSparks = () => {
+      if (!S.sound) return;
+      ensureAudio();
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(55, audioCtx.currentTime + 0.45);
+      gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.005, audioCtx.currentTime + 0.45);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.45);
+    };
+
+    const stopEmergencySiren = () => {
+      if (sirenInterval) {
+        clearInterval(sirenInterval);
+        sirenInterval = null;
+      }
+    };
+
+    const startEmergencySiren = () => {
+      stopEmergencySiren();
+      if (!S.sound) return;
+      ensureAudio();
+      if (!audioCtx) return;
+      const ctx = audioCtx;
+      const pulseSiren = () => {
+        if (!S.run || !S.sound) return;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(580, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.9);
+        osc.frequency.linearRampToValueAtTime(580, ctx.currentTime + 1.8);
+        gain.gain.setValueAtTime(0.04, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.005, ctx.currentTime + 1.8);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 1.8);
+      };
+      pulseSiren();
+      sirenInterval = setInterval(pulseSiren, 2200);
+    };
+
+    const triggerDisasterAudio = () => {
+      if (!S.run || !S.sound) {
+        stopEmergencySiren();
+        return;
+      }
+      if (S.activeDisaster === "VOLCANO") {
+        playVolcanoBlast(5.0);
+      } else if (S.activeDisaster === "TSUNAMI") {
+        playTsunamiSurge(6.5);
+        playEarthquakeRumble(5.0);
+        startEmergencySiren();
+      } else if (S.activeDisaster === "EARTHQUAKE") {
+        playEarthquakeRumble(5.0);
+        setTimeout(() => playTransformerSparks(), 1400);
+        if (S.mw >= 7.0) startEmergencySiren();
+      } else if (S.activeDisaster === "LIQUEFACTION") {
+        playEarthquakeRumble(6.0);
+      } else if (S.activeDisaster === "WILDFIRE") {
+        playTransformerSparks();
+        playTsunamiSurge(5.0);
+        startEmergencySiren();
+      }
+    };
+
+    audioApiRef.current = { triggerAudio: triggerDisasterAudio, stopSiren: stopEmergencySiren };
+
+    // ---------------- Renderer, scene, camera, controls ----------------
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
@@ -201,7 +471,6 @@ export function ThreeEarthquakeCanvas({
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 300);
     camera.position.set(...CAMERA_PRESETS.coast[0]);
-    cameraRef.current = camera;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -210,7 +479,6 @@ export function ThreeEarthquakeCanvas({
     controls.minDistance = 6;
     controls.maxDistance = 150;
     controls.target.set(...CAMERA_PRESETS.coast[1]);
-    controlsRef.current = controls;
 
     // Lighting
     const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 0.85);
@@ -226,9 +494,9 @@ export function ThreeEarthquakeCanvas({
     scene.add(world);
 
     // Helpers
-    const mat = (c: THREE.ColorRepresentation, o: THREE.MeshStandardMaterialParameters = {}) =>
+    const mat = (c: number, o: Partial<THREE.MeshStandardMaterialParameters> = {}) =>
       new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, ...o });
-    const box = (w: number, h: number, d: number, m: THREE.Material) =>
+    const box = (w: number, h: number, d: number, m: THREE.MeshStandardMaterial) =>
       new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
 
     // Procedural Grass Texture
@@ -294,7 +562,7 @@ export function ThreeEarthquakeCanvas({
     const bg = new THREE.BoxGeometry(1, 1, 1);
     bg.translate(0, 0.5, 0);
 
-    function createWinTexture(lit: boolean) {
+    const createWinTexture = (lit: boolean) => {
       const k = document.createElement("canvas");
       k.width = 64;
       k.height = 128;
@@ -311,7 +579,7 @@ export function ThreeEarthquakeCanvas({
       const t = new THREE.CanvasTexture(k);
       t.colorSpace = THREE.SRGBColorSpace;
       return t;
-    }
+    };
 
     const bm = mat(0xffffff, {
       map: createWinTexture(false),
@@ -327,36 +595,58 @@ export function ThreeEarthquakeCanvas({
 
     const cc = new THREE.Color();
     Bd.forEach((_, i) => city.setColorAt(i, cc.setHSL(0.55, 0.08, 0.6 + Math.random() * 0.25)));
-    city.instanceColor!.needsUpdate = true;
+    if (city.instanceColor) city.instanceColor.needsUpdate = true;
     const dm = new THREE.Object3D();
 
-    // 3. POHON DI DARATAN KOTA
+    // 3. POHON DI DARATAN KOTA (DENGAN DATA POSISI UNTUK SIMULASI KEBAKARAN HUTAN)
     const NT = 60;
     const trGeom = new THREE.CylinderGeometry(0.06, 0.09, 0.6, 5);
     trGeom.translate(0, 0.3, 0);
     const tcGeom = new THREE.ConeGeometry(0.45, 1.4, 7);
     tcGeom.translate(0, 1.2, 0);
     const tr = new THREE.InstancedMesh(trGeom, mat(0x5a3d26), NT);
-    const tc = new THREE.InstancedMesh(tcGeom, mat(0x2f6b3a), NT);
+    const tc = new THREE.InstancedMesh(tcGeom, mat(0xffffff), NT);
     const td = new THREE.Object3D();
+
+    interface TreeData {
+      x: number;
+      z: number;
+      s: number;
+      rot: number;
+      distFromIgnition: number;
+    }
+    const Td: TreeData[] = [];
+    const treeColor = new THREE.Color();
+    const ignitionPoint = { x: -20.0, z: -12.0 };
+
     let tn = 0;
     for (let i = 0; tn < NT && i < 2000; i++) {
       const x = -21 + Math.random() * 17.5;
       const z = -13 + Math.random() * 26;
       if (x > -16.5 && x < -4.5 && z > -7.5 && z < 4.5) continue;
       const s = 0.7 + Math.random() * 0.8;
+      const rot = Math.random() * 6;
       td.position.set(x, 0, z);
-      td.rotation.set(0, Math.random() * 6, 0);
+      td.rotation.set(0, rot, 0);
       td.scale.set(s, s, s);
       td.updateMatrix();
       tr.setMatrixAt(tn, td.matrix);
-      tc.setMatrixAt(tn++, td.matrix);
+      tc.setMatrixAt(tn, td.matrix);
+      tc.setColorAt(tn, treeColor.setHex(0x2f6b3a));
+
+      const dx = x - ignitionPoint.x;
+      const dz = z - ignitionPoint.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      Td.push({ x, z, s, rot, distFromIgnition: dist });
+      tn++;
     }
     tr.count = tc.count = tn;
+    if (tc.instanceColor) tc.instanceColor.needsUpdate = true;
     tc.castShadow = tr.castShadow = true;
     world.add(tr, tc);
 
     // 4. PEGUNUNGAN LATAR BELAKANG DARATAN KOTA
+    const mountainMeshes: THREE.Mesh<THREE.ConeGeometry, THREE.MeshStandardMaterial>[] = [];
     [
       [-20, -13.5, 5.2, 7.2],
       [-15, -13.8, 4.5, 5.8],
@@ -366,7 +656,13 @@ export function ThreeEarthquakeCanvas({
       const m = new THREE.Mesh(new THREE.ConeGeometry(a[2], a[3], 6), mat(0x5f6f63));
       m.position.set(a[0], a[3] / 2, a[1]);
       world.add(m);
+      mountainMeshes.push(m);
     });
+
+    // Cahaya Api Dinamis untuk Kebakaran Hutan
+    const fireLight = new THREE.PointLight(0xff5500, 0, 26);
+    fireLight.position.set(-16, 3.5, -8);
+    world.add(fireLight);
 
     // 5. PULAU GUNUNG BERAPI DI TENGAH LAUT (X = 13, Z = 0)
     const islandBase = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 7.8, 1.2, 32), mat(0x3d352e));
@@ -381,7 +677,7 @@ export function ThreeEarthquakeCanvas({
     // Kerucut kawah prosedural
     const vm = mat(0xffffff, { emissive: 0xff4a00, emissiveIntensity: 0 });
     const vg = new THREE.CylinderGeometry(1.0, 3.8, 5.0, 48, 16, true);
-    const vp = vg.attributes.position;
+    const vp = vg.attributes.position as THREE.BufferAttribute;
     const vcl = new Float32Array(vp.count * 3);
     for (let i = 0; i < vp.count; i++) {
       const x = vp.getX(i);
@@ -431,17 +727,14 @@ export function ThreeEarthquakeCanvas({
     bridgeGroup.position.set(2.0, 0, 5.0);
     world.add(bridgeGroup);
 
-    // Abutment kota di barat jembatan
     const abCity = box(1.6, 1.3, 2.2, mat(0x4b5563));
     abCity.position.set(-5.6, 0.45, 0);
     bridgeGroup.add(abCity);
 
-    // Abutment pulau seberang
     const abIsland = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.6, 1.4, 16), mat(0x334155));
     abIsland.position.set(5.6, 0.2, 0);
     bridgeGroup.add(abIsland);
 
-    // Pilar penyangga menembus air
     const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 2.3, 16), mat(0x4b5563));
     p1.position.set(-2.8, 0.2, 0);
     bridgeGroup.add(p1);
@@ -450,7 +743,6 @@ export function ThreeEarthquakeCanvas({
     p2.position.set(2.8, 0.2, 0);
     bridgeGroup.add(p2);
 
-    // Pylon jembatan gantung di tengah bentang selat
     const pylonBase = box(1.2, 2.2, 2.4, mat(0x4b5563));
     pylonBase.position.set(0, -0.1, 0);
     bridgeGroup.add(pylonBase);
@@ -467,20 +759,17 @@ export function ThreeEarthquakeCanvas({
     pyTop.position.set(0, 4.2, 0);
     bridgeGroup.add(pyTop);
 
-    // Geladak jembatan di atas aliran air selat (Y = 1.35)
     const deck = box(11.2, 0.25, 1.6, mat(0x374151));
     deck.position.set(0, 1.35, 0);
     deck.castShadow = true;
     bridgeGroup.add(deck);
 
-    // Marka jalan jembatan
     const lineDeckGeo = new THREE.PlaneGeometry(11.0, 0.08);
     lineDeckGeo.rotateX(-Math.PI / 2);
     const lineDeck = new THREE.Mesh(lineDeckGeo, new THREE.MeshBasicMaterial({ color: 0xf59e0b }));
     lineDeck.position.set(0, 0.13, 0);
     deck.add(lineDeck);
 
-    // Railing pengaman kiri & kanan
     const r1 = box(11.2, 0.28, 0.06, mat(0xd1d5db, { metalness: 0.3, roughness: 0.5 }));
     r1.position.set(0, 0.25, 0.76);
     deck.add(r1);
@@ -489,9 +778,8 @@ export function ThreeEarthquakeCanvas({
     r2.position.set(0, 0.25, -0.76);
     deck.add(r2);
 
-    // Kabel-kabel baja suspensi simetris sempurna
     const cableMat = mat(0xe2e8f0, { metalness: 0.6, roughness: 0.3 });
-    function addCable(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) {
+    const addCable = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) => {
       const v1 = new THREE.Vector3(x1, y1, z1);
       const v2 = new THREE.Vector3(x2, y2, z2);
       const mid = new THREE.Vector3().addVectors(v1, v2).multiplyScalar(0.5);
@@ -502,17 +790,17 @@ export function ThreeEarthquakeCanvas({
       cyl.position.copy(mid);
       cyl.setRotationFromQuaternion(quat);
       deck.add(cyl);
-    }
+    };
 
     [
       [1.4, 2.3],
       [2.8, 2.65],
       [4.2, 2.95],
     ].forEach(([dx, py]) => {
-      addCable(-dx, 0.22, 0.76, 0, py, 0.88); // Barat Selatan
-      addCable(dx, 0.22, 0.76, 0, py, 0.88); // Timur Selatan
-      addCable(-dx, 0.22, -0.76, 0, py, -0.88); // Barat Utara
-      addCable(dx, 0.22, -0.76, 0, py, -0.88); // Timur Utara
+      addCable(-dx, 0.22, 0.76, 0, py, 0.88);
+      addCable(dx, 0.22, 0.76, 0, py, 0.88);
+      addCable(-dx, 0.22, -0.76, 0, py, -0.88);
+      addCable(dx, 0.22, -0.76, 0, py, -0.88);
     });
 
     // 7. LAUT & SELAT AIR MENGALIR DI BAWAH JEMBATAN (Pusat X = 13.5, Z = 0)
@@ -544,7 +832,7 @@ export function ThreeEarthquakeCanvas({
     mud.position.set(-11, 0.03, -2);
     world.add(mud);
 
-    const ck: THREE.Mesh[] = [];
+    const ck: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>[] = [];
     for (let i = 0; i < 12; i++) {
       const k = box(1, 0.03, 0.1, mat(0x151210));
       k.position.set(-11 + (Math.random() - 0.5) * 3, 0.03, -9 + i * 1.6);
@@ -555,8 +843,8 @@ export function ThreeEarthquakeCanvas({
       ck.push(k);
     }
 
-    // 8. PARTIKEL SISTEM DENGAN SHADER
-    const NP = 700;
+    // 8. PARTIKEL SISTEM DENGAN SHADER (Mendukung Volcano, Rubble, & Wildfire)
+    const NP = 900;
     const pp = new Float32Array(NP * 3).fill(-100);
     const pc = new Float32Array(NP * 3);
     const pv = new Float32Array(NP * 3);
@@ -610,16 +898,25 @@ export function ThreeEarthquakeCanvas({
     pts.frustumCulled = false;
     world.add(pts);
 
-    function emit(k: number, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number) {
+    const emit = (
+      k: number,
+      x: number,
+      y: number,
+      z: number,
+      vx: number,
+      vy: number,
+      vz: number,
+      life: number
+    ) => {
       const i = pi++ % NP;
       pp.set([x, y, z], i * 3);
       pv.set([vx, vy, vz], i * 3);
       pl[i] = pL0[i] = life;
       pk[i] = k;
-    }
+    };
 
     // Sky Background Canvas Textures
-    function makeSkyTexture(a: string, b: string, c: string) {
+    const makeSkyTexture = (a: string, b: string, c: string) => {
       const k = document.createElement("canvas");
       k.width = 2;
       k.height = 256;
@@ -633,7 +930,7 @@ export function ThreeEarthquakeCanvas({
       const t = new THREE.CanvasTexture(k);
       t.colorSpace = THREE.SRGBColorSpace;
       return t;
-    }
+    };
     const skyD = makeSkyTexture("#4a86b8", "#a9cde0", "#e7eef0");
     const skyN = makeSkyTexture("#02050c", "#0b1830", "#1b2c44");
     const nightC = new THREE.Color(0x07111e);
@@ -641,65 +938,50 @@ export function ThreeEarthquakeCanvas({
     const bgc = new THREE.Color();
     scene.fog = new THREE.Fog(0xdce8ee, 50, 140);
 
-    // Resize handler
+    // ---------------- Resize handling ----------------
     const handleResize = () => {
-      if (!container) return;
       const w = container.clientWidth;
       const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       PU.uS.value = h * renderer.getPixelRatio() * 1.07;
     };
     handleResize();
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(container);
     window.addEventListener("resize", handleResize);
 
-    // Compute physics function
-    function computePhysics(s: typeof stateRef.current) {
-      const e = Math.pow(10, 1.5 * s.mw + 4.8) / 4.184e15;
-      const pga = Math.min(1.5, Math.pow(10, 0.5 * s.mw - 2.2) / (s.depth + 10));
-      const th = s.mech === "megathrust" && s.depth < 70 ? s.slip * 0.4 * (s.mw / 8) * 0.25 : 0;
-      const eta = th > 0 ? (150 / (Math.sqrt(9.8 * 3000) * 3.6)) * 60 : null;
-      return {
-        e,
-        pga,
-        th,
-        eta,
-        br: Math.min(100, pga * 75),
-        pw: Math.min(100, pga * 82),
-        hs: Math.min(100, pga * 88),
-      };
-    }
-
-    // Seismograph trace history
-    const seismoHist = new Array(260).fill(0);
+    // ---------------- Animation frame loop ----------------
+    const seismoHist = new Array<number>(260).fill(0);
     let seismoFrameCount = 0;
-
-    // Clock
     const clock = new THREE.Clock();
     let tm = 0;
-    let animId: number;
+    let disposed = false;
+    let rafId = 0;
 
-    // Animation Frame Loop
     const frame = () => {
-      animId = requestAnimationFrame(frame);
+      if (disposed) return;
+      rafId = requestAnimationFrame(frame);
       const dt = Math.min(clock.getDelta(), 0.05);
       tm += dt;
 
-      const S = stateRef.current;
-      if (S.run) S.t += dt;
-      setSimTime(S.t);
+      if (S.run) {
+        S.t += dt;
+        if (hudTimeRef.current) hudTimeRef.current.textContent = `${S.t.toFixed(1)}s`;
+      }
 
       const t = S.t;
       const c = computePhysics(S);
       const m = S.mode;
       const run = S.run;
       const dur = 4 + (S.mw - 5) * 3;
-      const shake = run && t < dur ? c.pga * (1 - (0.5 * t) / dur) * (m === "volcano" ? 0.3 : 1) : 0;
+      const shake =
+        run && t < dur && m !== "wildfire"
+          ? c.pga * (1 - (0.5 * t) / dur) * (m === "volcano" ? 0.3 : 1)
+          : 0;
       const prog = Math.min(1, t / dur);
-
-      // Display live PGA
-      setPgaDisplay(c.pga.toFixed(2));
 
       // 1. World Shake
       world.position.set(
@@ -728,18 +1010,128 @@ export function ThreeEarthquakeCanvas({
       });
       city.instanceMatrix.needsUpdate = true;
 
+      // 2b. Simulasi Kebakaran Hutan (Rothermel Spread & Tree Burning)
+      const fireRadius = m === "wildfire" && run ? t * c.fireSpreadRate : 0;
+      let burningTreesCount = 0;
+      let charredTreesCount = 0;
+      let sumBurnX = 0;
+      let sumBurnZ = 0;
+
+      for (let i = 0; i < tn; i++) {
+        const tree = Td[i];
+        if (m === "wildfire" && t > 0) {
+          const d = fireRadius - tree.distFromIgnition;
+          if (d < 0) {
+            tc.setColorAt(i, treeColor.setHex(0x2f6b3a));
+            td.scale.set(tree.s, tree.s, tree.s);
+          } else if (d < 4.8) {
+            burningTreesCount++;
+            sumBurnX += tree.x;
+            sumBurnZ += tree.z;
+            const flicker = 0.5 + 0.5 * Math.sin(tm * 18 + i * 2.1);
+            treeColor.setRGB(1.0, 0.22 + flicker * 0.45, 0.04);
+            tc.setColorAt(i, treeColor);
+
+            if (run && Math.random() < 0.32) {
+              emit(
+                4,
+                tree.x + (Math.random() - 0.5) * 0.5,
+                0.7 + Math.random() * 0.9 * tree.s,
+                tree.z + (Math.random() - 0.5) * 0.5,
+                0.35 + Math.random() * 0.5,
+                1.6 + Math.random() * 2.2,
+                0.25 + (Math.random() - 0.5) * 0.5,
+                0.7 + Math.random() * 0.6
+              );
+            }
+            if (run && Math.random() < 0.22) {
+              emit(
+                5,
+                tree.x + (Math.random() - 0.5) * 0.6,
+                1.4 * tree.s,
+                tree.z + (Math.random() - 0.5) * 0.6,
+                0.7 + Math.random() * 0.7,
+                2.0 + Math.random() * 1.8,
+                0.35 + (Math.random() - 0.5) * 0.4,
+                4.5 + Math.random() * 2.5
+              );
+            }
+            td.scale.set(tree.s, tree.s * (1 - d * 0.04), tree.s);
+          } else {
+            charredTreesCount++;
+            tc.setColorAt(i, treeColor.setHex(0x1f1d1b));
+            td.scale.set(tree.s * 0.65, tree.s * 0.55, tree.s * 0.65);
+
+            if (run && Math.random() < 0.03) {
+              emit(5, tree.x, 1.0 * tree.s, tree.z, 0.5 + Math.random() * 0.4, 1.3 + Math.random() * 0.8, 0.2, 3.5);
+            }
+          }
+          td.position.set(tree.x, 0, tree.z);
+          td.rotation.set(0, tree.rot, 0);
+          td.updateMatrix();
+          tc.setMatrixAt(i, td.matrix);
+        } else {
+          tc.setColorAt(i, treeColor.setHex(0x2f6b3a));
+          td.position.set(tree.x, 0, tree.z);
+          td.rotation.set(0, tree.rot, 0);
+          td.scale.set(tree.s, tree.s, tree.s);
+          td.updateMatrix();
+          tc.setMatrixAt(i, td.matrix);
+        }
+      }
+      if (tc.instanceColor) tc.instanceColor.needsUpdate = true;
+      tc.instanceMatrix.needsUpdate = true;
+
+      // Emisi api di lereng pegunungan latar belakang saat mode Wildfire
+      if (m === "wildfire" && run) {
+        mountainMeshes.forEach((mt, idx) => {
+          const mtDist = Math.max(0, idx * 4.5 - fireRadius * 0.8);
+          const burnFactor = Math.min(1, Math.max(0, (fireRadius - idx * 3.5) / 10));
+          mt.material.color.setHex(0x5f6f63).lerp(cc.setHex(0x2a2421), burnFactor * 0.75);
+
+          if (mtDist < 2 && Math.random() < 0.35) {
+            const angle = Math.random() * Math.PI * 2;
+            const rad = Math.random() * 3.2;
+            emit(
+              4,
+              mt.position.x + Math.cos(angle) * rad,
+              1.0 + Math.random() * 3.5,
+              mt.position.z + Math.sin(angle) * rad,
+              0.4 + Math.random() * 0.5,
+              2.2 + Math.random() * 2.5,
+              0.3,
+              0.9 + Math.random() * 0.5
+            );
+          }
+        });
+
+        if (burningTreesCount > 0) {
+          fireLight.position.set(sumBurnX / burningTreesCount, 3.2, sumBurnZ / burningTreesCount);
+          fireLight.intensity = (1.8 + Math.min(3.5, burningTreesCount * 0.25)) * (0.85 + Math.random() * 0.3);
+        } else {
+          fireLight.intensity = 1.2 * (0.8 + Math.random() * 0.4);
+        }
+      } else {
+        fireLight.intensity = 0;
+        mountainMeshes.forEach((mt) => {
+          mt.material.color.setHex(0x5f6f63);
+        });
+      }
+
       // 3. Ground & Geology
-      (ground.material as THREE.MeshStandardMaterial).color.setHex(0x8aa860).lerp(cc.setHex(0x7a6a4a), liq);
-      (mud.material as THREE.MeshStandardMaterial).opacity = liq * 0.7;
+      const wildfireChar = m === "wildfire" ? Math.min(0.65, (charredTreesCount / Math.max(1, tn)) * 0.85) : 0;
+      ground.material.color
+        .setHex(0x8aa860)
+        .lerp(cc.setHex(0x7a6a4a), liq)
+        .lerp(cc.setHex(0x3a322b), wildfireChar);
+      mudMat.opacity = liq * 0.7;
       layer.position.x = -12.25 + (m === "quake" && run ? Math.min(S.slip * 0.04, 1) * prog : 0);
       layer.position.z = m === "quake" && run ? Math.sin(t * 3) * shake * 0.03 : 0;
 
       // Fault cracks
       ck.forEach((k) => {
         const v =
-          (m === "quake" || m === "liquefaction") && t > 0
-            ? Math.min(1, t / dur) * Math.min(1, c.pga / 0.35)
-            : 0;
+          (m === "quake" || m === "liquefaction") && t > 0 ? Math.min(1, t / dur) * Math.min(1, c.pga / 0.35) : 0;
         k.scale.x = Math.max(0.001, v * (k.userData.L as number));
       });
 
@@ -749,12 +1141,11 @@ export function ThreeEarthquakeCanvas({
       deck.rotation.z = bk * 0.35;
 
       // 5. Ocean Current & Tsunami Wave Front
-      const eta = c.eta;
-      const ts = m === "tsunami" && eta !== null;
-      const fx = ts && run ? 26 - 28.5 * Math.min(1, t / eta) : 35;
-      const hit = ts && run ? Math.max(0, Math.min(1, (t - eta) / 6)) : 0;
+      const etaArr = run && m === "tsunami" ? c.eta : null;
+      const fx = etaArr !== null ? 26 - 28.5 * Math.min(1, t / etaArr) : 35;
+      const hit = etaArr !== null ? Math.max(0, Math.min(1, (t - etaArr) / 6)) : 0;
       const lvl = Math.min(c.th * 1.2, 4.5);
-      const pos = sea.geometry.attributes.position;
+      const pos = sgeo.attributes.position as THREE.BufferAttribute;
 
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
@@ -764,7 +1155,7 @@ export function ThreeEarthquakeCanvas({
         if (Math.abs(z - 5.0) < 3.0 && wx < 8.0) {
           y += Math.sin(wx * 1.2 - tm * 2.5) * 0.04;
         }
-        if (ts && run) {
+        if (etaArr !== null) {
           const dist = wx - fx;
           const spread = dist < 0 ? 2.0 : 6.0;
           y +=
@@ -775,7 +1166,8 @@ export function ThreeEarthquakeCanvas({
 
         const depthFactor = Math.min(1, Math.max(0, (wx + 2.5) / 25));
         const foam = Math.max(0, Math.min(1, (y - 0.12) / 0.5));
-        sea.geometry.attributes.color.setXYZ(
+        const colAttr = sgeo.attributes.color as THREE.BufferAttribute;
+        colAttr.setXYZ(
           i,
           0.03 + depthFactor * 0.02 + foam * 0.9,
           0.35 + depthFactor * 0.15 + foam * 0.65,
@@ -783,8 +1175,8 @@ export function ThreeEarthquakeCanvas({
         );
       }
       pos.needsUpdate = true;
-      sea.geometry.attributes.color.needsUpdate = true;
-      sea.geometry.computeVertexNormals();
+      (sgeo.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+      sgeo.computeVertexNormals();
 
       sea.position.y = -0.3 + lvl * 0.35 * hit;
       flood.scale.x = Math.max(0.001, hit);
@@ -793,7 +1185,7 @@ export function ThreeEarthquakeCanvas({
 
       // 6. Volcano Island Crater in the Sea
       const er = m === "volcano" ? Math.min(1, t / 3) * Math.max(0.2, (S.mw - 4) / 4) : 0;
-      (vm as THREE.MeshStandardMaterial).emissiveIntensity = m === "volcano" ? 0.06 + er * 0.22 : 0;
+      vm.emissiveIntensity = m === "volcano" ? 0.06 + er * 0.22 : 0;
       lavaMat.color.setHSL(0.045, 1, m === "volcano" ? 0.38 + Math.random() * 0.15 : 0.08);
       (lavaStream.material as THREE.MeshStandardMaterial).emissiveIntensity =
         m === "volcano" ? 0.9 + Math.sin(t * 8) * 0.3 : 0.2;
@@ -801,7 +1193,6 @@ export function ThreeEarthquakeCanvas({
 
       // 7. Particle Emissions
       if (m === "volcano" && run) {
-        // Glowing magma bombs
         for (let k = 0; k < Math.floor(er * 7); k++) {
           emit(
             0,
@@ -814,7 +1205,6 @@ export function ThreeEarthquakeCanvas({
             1.8
           );
         }
-        // Billowing volcanic plume
         if (Math.random() < er * 1.6) {
           emit(
             1,
@@ -827,7 +1217,6 @@ export function ThreeEarthquakeCanvas({
             6
           );
         }
-        // Falling ash
         emit(2, -10 + Math.random() * 26, 14, -10 + Math.random() * 20, 0, -1.2, 0, 10);
       }
 
@@ -847,7 +1236,7 @@ export function ThreeEarthquakeCanvas({
           pp[j + 1] = -100;
           continue;
         }
-        pv[j + 1] -= (k === 0 ? 9 : k === 1 ? -0.8 : 0) * dt;
+        pv[j + 1] -= (k === 0 ? 9 : k === 1 || k === 5 ? -0.6 : k === 4 ? -1.2 : 0) * dt;
         pp[j] += pv[j] * dt;
         pp[j + 1] += pv[j + 1] * dt;
         pp[j + 2] += pv[j + 2] * dt;
@@ -856,31 +1245,41 @@ export function ThreeEarthquakeCanvas({
           pp[j + 1] = -100;
         }
         const L = pl[i] / pL0[i];
-        let r: number, g: number, b: number, s: number, a: number;
+        let r, g, b2, s, a;
         if (k === 0) {
           r = 1;
           g = 0.35 + 0.45 * L;
-          b = 0.08;
+          b2 = 0.08;
           s = 0.25;
           a = 1;
         } else if (k === 1) {
-          r = g = b = 0.2 + 0.3 * (1 - L);
+          r = g = b2 = 0.2 + 0.3 * (1 - L);
           s = 0.8 + (1 - L) * 2.6;
           a = 0.6 * L;
         } else if (k === 2) {
-          r = g = b = 0.55;
+          r = g = b2 = 0.55;
           s = 0.22;
           a = 0.7 * Math.min(1, L * 3);
+        } else if (k === 4) {
+          r = 1.0;
+          g = 0.2 + 0.65 * L;
+          b2 = 0.05 * L;
+          s = 0.35 + (1 - L) * 0.55;
+          a = 0.9 * L;
+        } else if (k === 5) {
+          r = g = b2 = 0.16 + 0.22 * (1 - L);
+          s = 0.65 + (1 - L) * 2.2;
+          a = 0.55 * L;
         } else {
           r = 0.72;
           g = 0.64;
-          b = 0.52;
+          b2 = 0.52;
           s = 0.5 + (1 - L) * 2;
           a = 0.55 * L;
         }
         pc[j] = r;
         pc[j + 1] = g;
-        pc[j + 2] = b;
+        pc[j + 2] = b2;
         ps[i] = s;
         pa[i] = a;
       }
@@ -893,16 +1292,16 @@ export function ThreeEarthquakeCanvas({
       const n = S.night ? 1 : 0;
       bgc.copy(dayC).lerp(nightC, n);
       scene.background = S.night ? skyN : skyD;
-      scene.fog!.color.copy(bgc);
+      if (scene.fog) scene.fog.color.copy(bgc);
       hemi.intensity = 0.85 - 0.6 * n;
       sun.intensity = 0.95 - 0.75 * n;
-      (bm as THREE.MeshStandardMaterial).emissiveIntensity = 0.55 * n;
+      bm.emissiveIntensity = 0.55 * n;
 
       // 9. Camera Smooth Lerp Transition
-      if (camLerpWeight.current > 0) {
-        camLerpWeight.current -= dt;
-        camera.position.lerp(targetCamPos.current, 0.07);
-        controls.target.lerp(targetCamLook.current, 0.07);
+      if (S.camLerp > 0) {
+        S.camLerp -= dt;
+        camera.position.lerp(camTargets.pos, 0.07);
+        controls.target.lerp(camTargets.look, 0.07);
       }
       controls.update();
       renderer.render(scene, camera);
@@ -911,32 +1310,52 @@ export function ThreeEarthquakeCanvas({
       let bannerMsg = "";
       if (run) {
         if (m === "quake" && c.pga > 0.6 && t < dur + 3) {
-          bannerMsg = "🚨 KERUNTUHAN STRUKTUR: GETARAN SEISMIK EKSTREM (PGA > 0.6g)";
-        } else if (m === "tsunami" && eta !== null) {
-          bannerMsg =
-            t < eta
-              ? `🌊 PERINGATAN DINI: Tsunami tiba dalam ${(eta - t).toFixed(1)} menit!`
-              : "🌊 TSUNAMI MENERJANG DARATAN & JEMBATAN KOTA!";
+          bannerMsg = "KERUNTUHAN STRUKTUR: GETARAN SEISMIK EKSTREM (PGA > 0.6g)";
         } else if (m === "tsunami") {
-          bannerMsg = "ℹ️ Tidak ada potensi tsunami destruktif (bukan subduksi megathrust dangkal)";
+          if (c.eta !== null) {
+            bannerMsg =
+              t < c.eta
+                ? `PERINGATAN DINI: Tsunami tiba dalam ${(c.eta - t).toFixed(1)} menit!`
+                : "TSUNAMI MENERJANG DARATAN & JEMBATAN KOTA!";
+          } else {
+            bannerMsg = "Tidak ada potensi tsunami destruktif (bukan subduksi megathrust dangkal)";
+          }
         } else if (m === "volcano") {
-          bannerMsg = "🌋 ERUPSI GUNUNG BERAPI: Awan panas piroklastik & semburan magma!";
+          bannerMsg = "ERUPSI GUNUNG BERAPI: Awan panas piroklastik & semburan magma!";
         } else if (m === "liquefaction" && liq > 0.2) {
-          bannerMsg = "💧 LIKUIFAKSI TANAH: Tanah jenuh air mencair & fondasi kota amblas!";
+          bannerMsg = "LIKUIFAKSI TANAH: Tanah jenuh air mencair & fondasi kota amblas!";
+        } else if (m === "wildfire") {
+          const pctBurned = Math.min(
+            100,
+            Math.round(((burningTreesCount + charredTreesCount) / Math.max(1, tn)) * 100)
+          );
+          bannerMsg = `KEBAKARAN HUTAN (Model Rothermel): Laju rambat ${c.fireSpreadRate.toFixed(1)} m/s • Area terdampak ${pctBurned}%`;
         }
       }
-      setWarningBanner(bannerMsg);
+      if (bannerWrapRef.current && bannerTextRef.current) {
+        if (bannerMsg) {
+          bannerTextRef.current.textContent = bannerMsg;
+          bannerWrapRef.current.classList.remove("hidden");
+        } else {
+          bannerWrapRef.current.classList.add("hidden");
+        }
+      }
 
       // 11. Seismograph Drawing Engine
       seismoFrameCount++;
-      if (seismoFrameCount % 2 === 0 && seismoCanvasRef.current) {
-        const sctx = seismoCanvasRef.current.getContext("2d");
+      const seismoCanvas = seismoRef.current;
+      if (seismoFrameCount % 2 === 0 && seismoCanvas) {
+        const pgaShown = m === "wildfire" ? 0.02 : c.pga;
+        if (hudPgaRef.current) hudPgaRef.current.textContent = `PGA: ${pgaShown.toFixed(2)}g`;
+
+        const sctx = seismoCanvas.getContext("2d");
         if (sctx) {
           seismoHist.shift();
-          seismoHist.push(run ? (Math.random() * 2 - 1) * Math.min(1, shake * 0.9 + 0.03) : (Math.random() - 0.5) * 0.04);
+          seismoHist.push(
+            run ? (Math.random() * 2 - 1) * Math.min(1, shake * 0.9 + 0.03) : (Math.random() - 0.5) * 0.04
+          );
           sctx.clearRect(0, 0, 260, 52);
 
-          // Grid line
           sctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
           sctx.lineWidth = 1;
           sctx.beginPath();
@@ -944,7 +1363,6 @@ export function ThreeEarthquakeCanvas({
           sctx.lineTo(260, 26);
           sctx.stroke();
 
-          // Waveform
           sctx.strokeStyle = c.pga > 0.6 ? "#ef4444" : c.pga > 0.3 ? "#f59e0b" : "#38bdf8";
           sctx.lineWidth = 1.6;
           sctx.beginPath();
@@ -956,164 +1374,150 @@ export function ThreeEarthquakeCanvas({
         }
       }
     };
+    frame();
 
-    animId = requestAnimationFrame(frame);
-
-    // Cleanup on unmount
+    // ---------------- Cleanup on unmount ----------------
     return () => {
-      cancelAnimationFrame(animId);
+      disposed = true;
+      cancelAnimationFrame(rafId);
+      stopEmergencySiren();
+      audioApiRef.current = null;
+      resizeObserver.disconnect();
       window.removeEventListener("resize", handleResize);
+      controls.dispose();
+      scene.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (mesh.geometry) mesh.geometry.dispose();
+        const material = mesh.material;
+        if (Array.isArray(material)) material.forEach((mm) => mm.dispose());
+        else if (material) material.dispose();
+      });
       renderer.dispose();
-      gt.dispose();
-      skyD.dispose();
-      skyN.dispose();
-      if (renderer.domElement && container.contains(renderer.domElement)) {
+      if (renderer.domElement.parentElement === container) {
         container.removeChild(renderer.domElement);
+      }
+      if (audioCtx && audioCtx.state !== "closed") {
+        audioCtx.close().catch(() => {});
       }
     };
   }, []);
 
-  const toggleRun = () => {
-    const nextState = !isSimulating;
-    onSimulatingChange?.(nextState);
-    stateRef.current.run = nextState;
-  };
-
-  const handleReset = () => {
-    onSimulatingChange?.(false);
-    stateRef.current.run = false;
-    stateRef.current.t = 0;
-    setSimTime(0);
-    setWarningBanner("");
-  };
-
+  // ============================================================================
+  // Render (React JSX + Tailwind)
+  // ============================================================================
   return (
     <div
-      className={cn(
-        "relative w-full h-full min-h-[460px] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl transition-all duration-300 select-none",
-        isFullscreen && "fixed inset-0 z-50 rounded-none border-none min-h-screen"
-      )}
+      ref={wrapperRef}
+      className="relative w-full h-full min-h-[460px] rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 shadow-2xl select-none"
     >
       {/* 3D Canvas Mount Point */}
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      <div ref={mountRef} className="absolute inset-0 cursor-grab active:cursor-grabbing" />
 
       {/* Warning Alert Banner (Top Center) */}
-      {warningBanner && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none animate-pulse">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-rose-600/95 text-white font-bold text-xs tracking-wide shadow-lg shadow-rose-600/50 backdrop-blur-md border border-rose-400/30">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-white" />
-            <span>{warningBanner}</span>
-          </div>
+      <div
+        ref={bannerWrapRef}
+        className="hidden absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-none animate-pulse"
+      >
+        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-rose-600/95 text-white font-bold text-xs tracking-wide shadow-lg shadow-rose-600/50 backdrop-blur-md border border-rose-400/30">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-white" />
+          <span ref={bannerTextRef} className="whitespace-nowrap">
+            {""}
+          </span>
         </div>
-      )}
+      </div>
 
       {/* Top Left: HUD Status & Mode Selection */}
-      <div className="absolute top-3 left-3 z-20 flex flex-col gap-2 max-w-[280px]">
-        {/* Title badge */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-750/70 backdrop-blur-md text-slate-200">
+      <div className="absolute top-3 left-3 z-20 flex flex-col gap-2 max-w-[310px]">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 backdrop-blur-md text-slate-200">
           <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
           <span className="text-[11px] font-bold tracking-tight text-white uppercase font-mono">
-            3D DISASTER SIMULATOR
+            3D Disaster Simulator
           </span>
-          <span className="text-[10px] text-slate-400 font-mono ml-auto">
-            {simTime > 0 ? `${simTime.toFixed(1)}s` : "STANDBY"}
+          <span ref={hudTimeRef} className="text-[10px] text-slate-400 font-mono ml-auto">
+            STANDBY
           </span>
         </div>
 
         {/* Disaster Mode Switcher */}
-        <div className="p-1 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md flex flex-wrap gap-1">
-          {(
-            [
-              { id: "EARTHQUAKE", label: "⚡ Gempa" },
-              { id: "TSUNAMI", label: "🌊 Tsunami" },
-              { id: "VOLCANO", label: "🌋 Gunung Api" },
-              { id: "LIQUEFACTION", label: "💧 Likuifaksi" },
-            ] as const
-          ).map((m) => {
-            const isSelected = activeDisaster === m.id;
+        <div className="p-1.5 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md flex flex-wrap gap-1">
+          {DISASTER_MODES.map(({ id, label, Icon }) => {
+            const isActive = disasterType === id;
             return (
               <button
-                key={m.id}
-                onClick={() => handleSelectMode(m.id)}
+                key={id}
+                type="button"
+                onClick={() => onDisasterTypeChange(id)}
                 className={cn(
-                  "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all",
-                  isSelected
+                  "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all",
+                  isActive
                     ? "bg-rose-600/80 text-white font-semibold shadow-sm border border-rose-500/50"
-                    : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                    : "text-slate-400 font-medium hover:text-white hover:bg-slate-800/60 border border-transparent"
                 )}
               >
-                {m.label}
+                <Icon className="h-3 w-3" />
+                <span>{label}</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Top Right: Camera Angles & Visual Tools */}
+      {/* Top Right: Visual Tools & Camera Presets */}
       <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-2">
-        {/* Control Action Buttons */}
         <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md">
-          {/* Day / Night Toggle */}
           <button
-            onClick={() => setIsNight(!isNight)}
-            title={isNight ? "Beralih ke Siang" : "Beralih ke Malam"}
+            type="button"
+            onClick={toggleNight}
+            title="Beralih Siang/Malam"
             className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            {isNight ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-sky-300" />}
+            {night ? <Sun className="h-3.5 w-3.5 text-amber-300" /> : <Moon className="h-3.5 w-3.5" />}
           </button>
-
-          {/* Sound Toggle */}
           <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            title={soundEnabled ? "Mute Suara" : "Aktifkan Sirine & Efek Suara"}
+            type="button"
+            onClick={toggleSound}
+            title="Mute / Aktifkan Suara"
             className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            {soundEnabled ? (
-              <Volume2 className="h-4 w-4 text-emerald-400" />
+            {sound ? (
+              <Volume2 className="h-3.5 w-3.5 text-emerald-400" />
             ) : (
-              <VolumeX className="h-4 w-4 text-slate-500" />
+              <VolumeX className="h-3.5 w-3.5 text-rose-400" />
             )}
           </button>
-
-          {/* Fullscreen Toggle */}
           <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            title={isFullscreen ? "Keluar Fullscreen" : "Fullscreen"}
+            type="button"
+            onClick={toggleFullscreen}
+            title="Fullscreen"
             className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
           >
-            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            <Maximize className="h-3.5 w-3.5" />
           </button>
         </div>
 
         {/* Camera Presets Bar */}
-        <div className="p-1 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md flex flex-col gap-1 text-right">
+        <div className="p-1.5 rounded-xl bg-slate-900/85 border border-slate-800 backdrop-blur-md flex flex-col gap-1 text-right">
           <span className="text-[10px] font-mono font-semibold text-slate-400 px-2 py-0.5 uppercase flex items-center justify-end gap-1">
-            <Camera className="h-3 w-3 text-sky-400" />
+            <CameraIcon className="h-3 w-3" />
             <span>Kamera:</span>
           </span>
           <div className="flex flex-col gap-0.5">
-            {(
-              [
-                { id: "orbit", label: "🌐 Orbit Selat" },
-                { id: "city", label: "🏙️ Kota & Gedung" },
-                { id: "coast", label: "🏖️ Pesisir & Jembatan" },
-                { id: "crater", label: "🌋 Kawah Gunung Api" },
-                { id: "fault", label: "🪨 Sesar & Patahan" },
-              ] as const
-            ).map((c) => {
-              const isSelected = cameraView === c.id;
+            {CAMERA_ITEMS.map(({ id, label, Icon }) => {
+              const isActive = cam === id;
               return (
                 <button
-                  key={c.id}
-                  onClick={() => switchCamera(c.id)}
+                  key={id}
+                  type="button"
+                  onClick={() => setUserCam({ forDisaster: disasterType, preset: id })}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[10px] font-medium text-right transition-all",
-                    isSelected
-                      ? "bg-sky-500/20 text-sky-300 font-semibold border border-sky-400/40"
-                      : "text-slate-400 hover:text-white hover:bg-slate-800/50"
+                    "flex items-center justify-end gap-1.5 px-2.5 py-1 rounded-lg text-[10px] text-right transition-all",
+                    isActive
+                      ? "bg-sky-500/20 text-sky-300 border border-sky-400/40 font-semibold"
+                      : "text-slate-400 font-medium hover:text-white hover:bg-slate-800/50 border border-transparent"
                   )}
                 >
-                  {c.label}
+                  <Icon className="h-3 w-3 shrink-0" />
+                  <span>{label}</span>
                 </button>
               );
             })}
@@ -1122,49 +1526,47 @@ export function ThreeEarthquakeCanvas({
       </div>
 
       {/* Bottom Left: Live Seismogram Oscillograph */}
-      <div className="absolute bottom-3 left-3 z-20 flex flex-col gap-1 p-2 rounded-xl bg-slate-900/90 border border-slate-800 backdrop-blur-md w-[276px]">
+      <div className="absolute bottom-3 left-3 z-20 flex flex-col gap-1 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 backdrop-blur-md w-[276px]">
         <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 px-1">
           <span className="flex items-center gap-1.5 text-slate-300 font-bold">
-            <Activity className="h-3.5 w-3.5 text-rose-500" />
-            <span>SEISMOGRAM LIVE</span>
+            <Waves className="h-3 w-3 text-rose-500" />
+            <span>Seismogram Live</span>
           </span>
-          <span className="text-amber-400 font-bold">PGA: {pgaDisplay}g</span>
+          <span ref={hudPgaRef} className="text-amber-400 font-bold">
+            PGA: 1.50g
+          </span>
         </div>
-        <canvas
-          ref={seismoCanvasRef}
-          width={260}
-          height={52}
-          className="w-full h-[52px] rounded-lg border border-slate-800/90 bg-slate-950/80 block"
-        />
+        <canvas ref={seismoRef} width={260} height={52} className="w-full h-[52px] rounded-lg border border-slate-800/90 bg-slate-950/80 block" />
       </div>
 
       {/* Bottom Right: Play / Pause / Reset Interactive Controls */}
       <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2">
         <button
+          type="button"
           onClick={handleReset}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-750 text-slate-300 hover:text-white text-xs font-semibold backdrop-blur-md transition-all shadow-md"
+          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-semibold backdrop-blur-md transition-all shadow-md"
         >
           <RotateCcw className="h-3.5 w-3.5" />
           <span>Reset</span>
         </button>
-
         <button
+          type="button"
           onClick={toggleRun}
           className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all shadow-lg backdrop-blur-md",
+            "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all shadow-lg backdrop-blur-md text-white",
             isSimulating
-              ? "bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30"
-              : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30"
+              ? "bg-amber-600 hover:bg-amber-500 shadow-amber-600/30"
+              : "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30"
           )}
         >
-          <Play className={cn("h-4 w-4", isSimulating && "animate-spin")} />
+          {isSimulating ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
           <span>{isSimulating ? "Jeda Simulasi" : "Mulai Simulasi"}</span>
         </button>
       </div>
 
       {/* OrbitControls Hint */}
       <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none hidden md:block">
-        <span className="text-[10px] text-slate-500/80 font-mono tracking-wider bg-slate-950/60 px-2 py-0.5 rounded-full border border-slate-800/40">
+        <span className="text-[10px] text-slate-400/90 font-mono tracking-wider bg-slate-950/75 px-3 py-1 rounded-full border border-slate-800/60">
           Tahan &amp; geser mouse untuk rotasi 3D • Scroll untuk zoom
         </span>
       </div>
