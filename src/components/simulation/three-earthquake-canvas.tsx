@@ -68,33 +68,31 @@ interface SimState {
   t: number;
 }
 
-// ============================================================================
-// Module-level constants (portable from the legacy HTML simulator)
-// ============================================================================
+// Cinematic isometric camera presets
 const CAMERA_PRESETS: Record<CamKey, [[number, number, number], [number, number, number]]> = {
   orbit: [
     [26, 25, 28],
     [0, 2, 0],
   ],
   city: [
-    [-6, 9, 14],
-    [-12, 3, 0],
+    [-6.5, 8.5, 12],
+    [-12.5, 2.5, -0.5],
   ],
   coast: [
-    [-1, 6, 13],
-    [6, 2, 3],
+    [-0.5, 6.2, 13.5],
+    [5.0, 2.2, 3.0],
   ],
   crater: [
-    [17, 9, 8],
-    [13, 5, 0],
+    [17.5, 9.2, 8.5],
+    [13.0, 5.0, 0.0],
   ],
   fault: [
-    [-12, -2, 22],
-    [-12, -1, 0],
+    [-11.5, 0.5, 17.0],
+    [-11.8, -0.8, 0.0],
   ],
   forest: [
-    [-14, 11, 16],
-    [-16, 2, -6],
+    [-13.5, 9.5, 15.0],
+    [-15.5, 2.2, -5.5],
   ],
 };
 
@@ -131,7 +129,7 @@ interface PhysicsResult {
   hs: number;
 }
 
-// Rothermel Surface Fire Spread Model included with classic seismic physics
+// Rothermel Surface Fire Spread Model combined with seismic dynamics
 function computePhysics(s: SimState): PhysicsResult {
   const e = Math.pow(10, 1.5 * s.mw + 4.8) / 4.184e15;
   const pga = Math.min(1.5, Math.pow(10, 0.5 * s.mw - 2.2) / (s.depth + 10));
@@ -173,6 +171,360 @@ const CAMERA_ITEMS: { id: CamKey; label: string; Icon: LucideIcon }[] = [
 ];
 
 // ============================================================================
+// Procedural Canvas Texture Generators (High detail, zero external network downloads)
+// ============================================================================
+
+// 1. Realistic PBR-like Grass & Terrain Texture (512x512)
+function createPbrGrassTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 512;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#53733a";
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Layer 1: Soil patches and earth tone variation
+  for (let i = 0; i < 400; i++) {
+    const v = (70 + Math.random() * 50) | 0;
+    ctx.fillStyle = `rgba(${v + 15},${v + 5},${v - 20},0.28)`;
+    const sz = 8 + Math.random() * 24;
+    ctx.fillRect(Math.random() * 512, Math.random() * 512, sz, sz);
+  }
+
+  // Layer 2: Grass blades & fine organic grain
+  for (let i = 0; i < 18000; i++) {
+    const g = (85 + Math.random() * 95) | 0;
+    const r = (g * 0.72) | 0;
+    const b = (g * 0.42) | 0;
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+  }
+
+  // Layer 3: Lush green moss highlights
+  for (let i = 0; i < 600; i++) {
+    const v = (130 + Math.random() * 70) | 0;
+    ctx.fillStyle = `rgba(${v - 40},${v + 15},${v - 50},0.22)`;
+    ctx.beginPath();
+    ctx.arc(Math.random() * 512, Math.random() * 512, 3 + Math.random() * 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 6);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// 2. Realistic Asphalt Road with Markings (512x512)
+function createAsphaltRoadTexture(type: "horizontal" | "vertical" | "bridge"): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 512;
+  const ctx = c.getContext("2d")!;
+
+  // Base asphalt tarmac
+  ctx.fillStyle = "#2c2f33";
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Asphalt aggregate grain
+  for (let i = 0; i < 9000; i++) {
+    const v = (38 + Math.random() * 32) | 0;
+    ctx.fillStyle = `rgba(${v},${v},${v + 2},0.35)`;
+    ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+  }
+
+  if (type === "horizontal") {
+    // Double solid yellow center divider
+    ctx.fillStyle = "#f59e0b";
+    ctx.fillRect(0, 251, 512, 3);
+    ctx.fillRect(0, 258, 512, 3);
+
+    // Dashed white lane dividers
+    ctx.fillStyle = "#f8fafc";
+    for (let x = 0; x < 512; x += 48) {
+      ctx.fillRect(x + 6, 126, 24, 3);
+      ctx.fillRect(x + 6, 382, 24, 3);
+    }
+
+    // Outer white shoulder lines
+    ctx.fillRect(0, 18, 512, 4);
+    ctx.fillRect(0, 490, 512, 4);
+
+    // Pedestrian zebra crossings at edges
+    ctx.fillStyle = "#ffffff";
+    for (let y = 30; y < 482; y += 22) {
+      ctx.fillRect(16, y, 22, 12);
+      ctx.fillRect(474, y, 22, 12);
+    }
+  } else if (type === "vertical") {
+    // Vertical avenue
+    ctx.fillStyle = "#f59e0b";
+    ctx.fillRect(251, 0, 3, 512);
+    ctx.fillRect(258, 0, 3, 512);
+
+    ctx.fillStyle = "#f8fafc";
+    for (let y = 0; y < 512; y += 48) {
+      ctx.fillRect(126, y + 6, 3, 24);
+      ctx.fillRect(382, y + 6, 3, 24);
+    }
+
+    ctx.fillRect(18, 0, 4, 512);
+    ctx.fillRect(490, 0, 4, 512);
+  } else {
+    // Bridge roadway (clean 4-lane with yellow center and white outer edges)
+    ctx.fillStyle = "#f59e0b";
+    ctx.fillRect(0, 252, 512, 4);
+    ctx.fillRect(0, 258, 512, 4);
+
+    ctx.fillStyle = "#f8fafc";
+    for (let x = 0; x < 512; x += 40) {
+      ctx.fillRect(x + 6, 130, 20, 3);
+      ctx.fillRect(x + 6, 378, 20, 3);
+    }
+    ctx.fillRect(0, 14, 512, 4);
+    ctx.fillRect(0, 494, 512, 4);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// 3. Sidewalk Paver Texture (256x256)
+function createSidewalkTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = "#9ba3af";
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Paver tile joints
+  ctx.strokeStyle = "#7b838f";
+  ctx.lineWidth = 2;
+  const tileSize = 32;
+  for (let x = 0; x <= 256; x += tileSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, 256);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= 256; y += tileSize) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(256, y);
+    ctx.stroke();
+  }
+
+  // Stone grain noise
+  for (let i = 0; i < 2000; i++) {
+    const v = (130 + Math.random() * 50) | 0;
+    ctx.fillStyle = `rgba(${v},${v},${v + 5},0.25)`;
+    ctx.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// 4. Architectural Building Facade Textures with PBR Mullions & Window Lights
+type FacadeType = "cbd_glass" | "apartment" | "precast_office" | "residential";
+
+function createBuildingFacadeTexture(type: FacadeType, lit: boolean): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 256;
+  const ctx = c.getContext("2d")!;
+
+  if (type === "cbd_glass") {
+    // Glass curtain wall with steel mullions
+    ctx.fillStyle = lit ? "#000000" : "#2a3b4c";
+    ctx.fillRect(0, 0, 256, 256);
+
+    const cols = 8;
+    const rows = 12;
+    const cw = 256 / cols;
+    const rh = 256 / rows;
+
+    for (let r = 0; r < rows; r++) {
+      for (let q = 0; q < cols; q++) {
+        const x = q * cw + 2;
+        const y = r * rh + 2;
+        const w = cw - 4;
+        const h = rh - 4;
+
+        if (lit) {
+          // Night office interior glow variation (amber, warm white, cyan, or dark off)
+          const seed = (r * 11 + q * 17) % 19;
+          if (seed < 8) {
+            ctx.fillStyle = seed % 3 === 0 ? "#ffd580" : seed % 3 === 1 ? "#fff2d6" : "#bae6fd";
+            ctx.fillRect(x, y, w, h);
+          } else {
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(x, y, w, h);
+          }
+        } else {
+          // Day glass: deep reflective blue-teal with metallic mullion frame
+          ctx.fillStyle = (r + q) % 2 === 0 ? "#3b556e" : "#32485e";
+          ctx.fillRect(x, y, w, h);
+
+          // Internal reflective gradient sheen
+          ctx.fillStyle = "rgba(186, 230, 253, 0.15)";
+          ctx.fillRect(x, y, w, h * 0.4);
+
+          // Steel frame outline
+          ctx.strokeStyle = "#1e293b";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, w, h);
+        }
+      }
+    }
+  } else if (type === "apartment") {
+    // Residential apartment: concrete spandrels, balconies & sliding glass doors
+    ctx.fillStyle = lit ? "#000000" : "#cbd5e1";
+    ctx.fillRect(0, 0, 256, 256);
+
+    const rows = 8;
+    const cols = 6;
+    const cw = 256 / cols;
+    const rh = 256 / rows;
+
+    for (let r = 0; r < rows; r++) {
+      // Concrete floor spandrel band
+      if (!lit) {
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillRect(0, r * rh, 256, 6);
+      }
+      for (let q = 0; q < cols; q++) {
+        const x = q * cw + 4;
+        const y = r * rh + 8;
+        const w = cw - 8;
+        const h = rh - 10;
+
+        if (lit) {
+          const isLit = (r * 7 + q * 13) % 4 < 2;
+          if (isLit) {
+            ctx.fillStyle = (r + q) % 2 === 0 ? "#fef08a" : "#fed7aa";
+            ctx.fillRect(x, y, w, h);
+          } else {
+            ctx.fillStyle = "#000000";
+            ctx.fillRect(x, y, w, h);
+          }
+        } else {
+          // Balcony opening with tinted window
+          ctx.fillStyle = "#1e293b";
+          ctx.fillRect(x, y, w, h);
+          ctx.fillStyle = "#38bdf8";
+          ctx.fillRect(x + 2, y + 2, w * 0.45, h - 4);
+          ctx.fillRect(x + w * 0.52, y + 2, w * 0.45, h - 4);
+        }
+      }
+    }
+  } else if (type === "precast_office") {
+    // Modern architectural precast concrete panels with punched windows
+    ctx.fillStyle = lit ? "#000000" : "#e2e8f0";
+    ctx.fillRect(0, 0, 256, 256);
+
+    const rows = 10;
+    const cols = 6;
+    const cw = 256 / cols;
+    const rh = 256 / rows;
+
+    for (let r = 0; r < rows; r++) {
+      for (let q = 0; q < cols; q++) {
+        const x = q * cw + 6;
+        const y = r * rh + 5;
+        const w = cw - 12;
+        const h = rh - 10;
+
+        if (lit) {
+          const isLit = (r * 5 + q * 9) % 3 === 0;
+          ctx.fillStyle = isLit ? "#fef3c7" : "#000000";
+          ctx.fillRect(x, y, w, h);
+        } else {
+          ctx.fillStyle = "#0f172a";
+          ctx.fillRect(x, y, w, h);
+          ctx.fillStyle = "#475569";
+          ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+          ctx.fillStyle = "rgba(224, 242, 254, 0.25)";
+          ctx.fillRect(x + 2, y + 2, w - 4, (h - 4) * 0.5);
+        }
+      }
+    }
+  } else {
+    // Low-rise residential / shophouse: textured render, windows & storefronts
+    ctx.fillStyle = lit ? "#000000" : "#d1d5db";
+    ctx.fillRect(0, 0, 256, 256);
+
+    const rows = 5;
+    const cols = 4;
+    const cw = 256 / cols;
+    const rh = 256 / rows;
+
+    for (let r = 0; r < rows; r++) {
+      for (let q = 0; q < cols; q++) {
+        const x = q * cw + 8;
+        const y = r * rh + 6;
+        const w = cw - 16;
+        const h = rh - 12;
+
+        if (lit) {
+          const isLit = (r * 3 + q * 7) % 2 === 0;
+          ctx.fillStyle = isLit ? "#fef08a" : "#000000";
+          ctx.fillRect(x, y, w, h);
+        } else {
+          ctx.fillStyle = "#334155";
+          ctx.fillRect(x, y, w, h);
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, w, h);
+        }
+      }
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// 5. Helipad & Roof Texture
+function createHelipadTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const ctx = c.getContext("2d")!;
+
+  ctx.fillStyle = "#475569";
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Outer yellow safety ring
+  ctx.strokeStyle = "#eab308";
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.arc(128, 128, 96, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // White inner circle
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(128, 128, 80, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Bold "H" letter
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(88, 64, 18, 128);
+  ctx.fillRect(150, 64, 18, 128);
+  ctx.fillRect(88, 118, 80, 20);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ============================================================================
 // Component
 // ============================================================================
 export function ThreeEarthquakeCanvas({
@@ -197,8 +549,6 @@ export function ThreeEarthquakeCanvas({
   const [night, setNight] = useState(false);
   const [sound, setSound] = useState(true);
 
-  // Active camera: user override wins until the disaster mode changes,
-  // otherwise each disaster type derives its recommended viewpoint.
   const cam: CamKey =
     userCam && userCam.forDisaster === disasterType ? userCam.preset : CAMERA_BY_DISASTER[disasterType];
 
@@ -222,10 +572,8 @@ export function ThreeEarthquakeCanvas({
     look: new THREE.Vector3(...CAMERA_PRESETS.coast[1]),
   });
 
-  // Bridge to audio engine living inside the Three.js mount effect
   const audioApiRef = useRef<{ triggerAudio: () => void; stopSiren: () => void } | null>(null);
 
-  // ---- Props -> mutable sim state synchronization ----
   useEffect(() => {
     const s = simRef.current;
     s.mw = magnitude;
@@ -271,7 +619,6 @@ export function ThreeEarthquakeCanvas({
     else if (s.run) audioApiRef.current?.triggerAudio();
   }, [sound]);
 
-  // ---- UI handlers ----
   const handleReset = () => {
     const s = simRef.current;
     s.run = false;
@@ -283,9 +630,7 @@ export function ThreeEarthquakeCanvas({
   };
 
   const toggleRun = () => onSimulatingChange(!isSimulating);
-
   const toggleNight = () => setNight((v) => !v);
-
   const toggleSound = () => setSound((v) => !v);
 
   const toggleFullscreen = () => {
@@ -299,7 +644,7 @@ export function ThreeEarthquakeCanvas({
   };
 
   // ============================================================================
-  // Main Three.js scene mount (runs once)
+  // Main Three.js Scene Mount Effect
   // ============================================================================
   useEffect(() => {
     const container = mountRef.current;
@@ -308,7 +653,7 @@ export function ThreeEarthquakeCanvas({
     const S = simRef.current;
     const camTargets = camTargetsRef.current;
 
-    // ---------------- Web Audio synthesized sound effects ----------------
+    // ---------------- Web Audio synthesized effects ----------------
     let audioCtx: AudioContext | null = null;
     let sirenInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -458,18 +803,19 @@ export function ThreeEarthquakeCanvas({
 
     audioApiRef.current = { triggerAudio: triggerDisasterAudio, stopSiren: stopEmergencySiren };
 
-    // ---------------- Renderer, scene, camera, controls ----------------
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    // ---------------- Renderer, Scene, Camera, Controls ----------------
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.1, 300);
+    const camera = new THREE.PerspectiveCamera(46, container.clientWidth / container.clientHeight, 0.1, 400);
     camera.position.set(...CAMERA_PRESETS.coast[0]);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -477,374 +823,1048 @@ export function ThreeEarthquakeCanvas({
     controls.dampingFactor = 0.05;
     controls.maxPolarAngle = Math.PI / 2 - 0.02;
     controls.minDistance = 6;
-    controls.maxDistance = 150;
+    controls.maxDistance = 160;
     controls.target.set(...CAMERA_PRESETS.coast[1]);
 
-    // Lighting
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x445566, 0.85);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
-    sun.position.set(15, 25, 10);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 80 });
-    sun.shadow.bias = -0.0004;
-    scene.add(hemi, sun);
+    // ---------------- Lighting Rig ----------------
+    const hemiLight = new THREE.HemisphereLight(0x90caf9, 0x4a5d3f, 1.1);
+    const sunLight = new THREE.DirectionalLight(0xfff8e7, 1.6);
+    sunLight.position.set(18, 30, 14);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(4096, 4096);
+    Object.assign(sunLight.shadow.camera, {
+      left: -50,
+      right: 50,
+      top: 50,
+      bottom: -50,
+      near: 0.5,
+      far: 120,
+    });
+    sunLight.shadow.bias = -0.0003;
+    sunLight.shadow.radius = 2.5;
+
+    const fillLight = new THREE.DirectionalLight(0xbae6fd, 0.45);
+    fillLight.position.set(-20, 15, -15);
+
+    const backRimLight = new THREE.DirectionalLight(0xfef08a, 0.25);
+    backRimLight.position.set(5, 8, -25);
+
+    scene.add(hemiLight, sunLight, fillLight, backRimLight);
 
     const world = new THREE.Group();
     scene.add(world);
 
-    // Helpers
+    // Helper material function
     const mat = (c: number, o: Partial<THREE.MeshStandardMaterialParameters> = {}) =>
-      new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, ...o });
-    const box = (w: number, h: number, d: number, m: THREE.MeshStandardMaterial) =>
-      new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+      new THREE.MeshStandardMaterial({ color: c, roughness: 0.8, ...o });
 
-    // Procedural Grass Texture
-    const gk = document.createElement("canvas");
-    gk.width = gk.height = 128;
-    const gx = gk.getContext("2d")!;
-    gx.fillStyle = "#8ea862";
-    gx.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 2400; i++) {
-      const v = (140 + Math.random() * 110) | 0;
-      gx.fillStyle = `rgb(${v - 25},${v},${v - 40})`;
-      gx.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
-    }
-    const gt = new THREE.CanvasTexture(gk);
-    gt.wrapS = gt.wrapT = THREE.RepeatWrapping;
-    gt.repeat.set(5, 5);
-    gt.colorSpace = THREE.SRGBColorSpace;
+    // ---------------- Procedural Textures Init ----------------
+    const grassTex = createPbrGrassTexture();
+    const roadHTex = createAsphaltRoadTexture("horizontal");
+    const roadVTex = createAsphaltRoadTexture("vertical");
+    const bridgeRoadTex = createAsphaltRoadTexture("bridge");
+    const sidewalkTex = createSidewalkTexture();
+    const helipadTex = createHelipadTexture();
 
-    // 1. DARATAN KOTA UTAMA (Sisi Barat X: -22 s/d -2.5)
-    const ground = box(19.5, 1, 30, mat(0x8aa860, { map: gt }));
-    ground.receiveShadow = true;
+    // Facade materials
+    const facadeTypes: FacadeType[] = ["cbd_glass", "apartment", "precast_office", "residential"];
+    const facadeMats = facadeTypes.map((t) => {
+      const dayTex = createBuildingFacadeTexture(t, false);
+      const nightTex = createBuildingFacadeTexture(t, true);
+      return mat(0xffffff, {
+        map: dayTex,
+        roughness: t === "cbd_glass" ? 0.2 : 0.75,
+        metalness: t === "cbd_glass" ? 0.5 : 0.1,
+        emissive: 0xffffff,
+        emissiveMap: nightTex,
+        emissiveIntensity: 0,
+      });
+    });
+
+    const roofMat = mat(0x475569, { roughness: 0.9 });
+    const concreteMat = mat(0x94a3b8, { roughness: 0.75 });
+    const metalMat = mat(0xe2e8f0, { metalness: 0.85, roughness: 0.25 });
+    const darkMetalMat = mat(0x1e293b, { metalness: 0.6, roughness: 0.4 });
+
+    // ============================================================================
+    // 1. TERRAIN & GEOLOGY (Kota Barat, Pantai Landai & Dasar Laut)
+    // ============================================================================
+    // Main city ground slab (X: -22 s/d -2.5)
+    const groundGeo = new THREE.BoxGeometry(19.5, 1.0, 30);
+    const ground = new THREE.Mesh(groundGeo, mat(0x658245, { map: grassTex, roughness: 0.88 }));
     ground.position.set(-12.25, -0.5, 0);
+    ground.receiveShadow = true;
     world.add(ground);
 
-    const sandBeach = box(0.8, 0.96, 30, mat(0xd6c59b));
-    sandBeach.position.set(-2.4, -0.52, 0);
-    world.add(sandBeach);
+    // Natural sloping sandy beach (X: -2.5 s/d 0.0)
+    const beachGeo = new THREE.PlaneGeometry(2.5, 30, 16, 32);
+    beachGeo.rotateX(-Math.PI / 2);
+    const bPos = beachGeo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < bPos.count; i++) {
+      const bx = bPos.getX(i);
+      // Slope from land level (y = 0.0) at bx = -1.25 down to underwater (y = -0.45) at bx = 1.25
+      const slope = (bx + 1.25) / 2.5;
+      bPos.setY(i, -0.02 - slope * 0.42);
+    }
+    beachGeo.computeVertexNormals();
+    const beach = new THREE.Mesh(beachGeo, mat(0xdcc59b, { roughness: 0.6, metalness: 0.1 }));
+    beach.position.set(-1.25, 0, 0);
+    beach.receiveShadow = true;
+    world.add(beach);
 
-    const layer = box(19.5, 1.2, 30, mat(0xb3202f));
-    layer.position.set(-12.25, -1.6, 0);
-    world.add(layer);
+    // Sub-surface geological strata
+    const geologicalLayer = new THREE.Mesh(new THREE.BoxGeometry(19.5, 1.2, 30), mat(0x991b1b));
+    geologicalLayer.position.set(-12.25, -1.6, 0);
+    world.add(geologicalLayer);
 
-    const base = box(19.5, 6, 30, mat(0x3b3f46));
-    base.position.set(-12.25, -5.2, 0);
-    world.add(base);
+    const tectonicBedrock = new THREE.Mesh(new THREE.BoxGeometry(19.5, 6, 30), mat(0x1e293b));
+    tectonicBedrock.position.set(-12.25, -5.2, 0);
+    world.add(tectonicBedrock);
 
-    const seabed = box(32, 5, 32, mat(0x1a2634));
-    seabed.position.set(13.5, -4.5, 0);
+    // Deep seabed with underwater relief
+    const seabedGeo = new THREE.PlaneGeometry(32, 32, 32, 32);
+    seabedGeo.rotateX(-Math.PI / 2);
+    const sbPos = seabedGeo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < sbPos.count; i++) {
+      const sx = sbPos.getX(i);
+      const sz = sbPos.getZ(i);
+      const depth = -4.5 + Math.sin(sx * 0.2 + sz * 0.15) * 0.6;
+      sbPos.setY(i, depth);
+    }
+    seabedGeo.computeVertexNormals();
+    const seabed = new THREE.Mesh(seabedGeo, mat(0x0f172a, { roughness: 0.95 }));
+    seabed.position.set(13.5, 0, 0);
+    seabed.receiveShadow = true;
     world.add(seabed);
 
-    // 2. GEDUNG KOTA DI DARATAN BARAT
-    const N = 56;
-    interface BuildingData {
-      x: number;
-      z: number;
-      w: number;
-      h: number;
-      ph: number;
-    }
-    const Bd: BuildingData[] = [];
-    for (let i = 0; i < N; i++) {
-      const col = i % 8;
-      const row = Math.floor(i / 8);
-      Bd.push({
-        x: -18.2 + col * 1.85 + Math.random() * 0.35,
-        z: -6.5 + row * 1.9 + Math.random() * 0.35,
-        w: 0.85 + Math.random() * 0.5,
-        h: 1.2 + Math.random() * 3.8,
-        ph: Math.random() * 6.28,
-      });
-    }
+    // Coastal seawall protecting promenade
+    const seawall = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.4, 30), mat(0x64748b, { roughness: 0.85 }));
+    seawall.position.set(-2.5, 0.18, 0);
+    seawall.receiveShadow = seawall.castShadow = true;
+    world.add(seawall);
 
-    const bg = new THREE.BoxGeometry(1, 1, 1);
-    bg.translate(0, 0.5, 0);
+    // ============================================================================
+    // 2. URBAN STREET NETWORK, SIDEWALKS & STREET LIGHTING
+    // ============================================================================
+    // Coastal Highway (Runs N-S along the shore, directly feeding bridge approach)
+    const coastalAvenue = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 30), mat(0xffffff, { map: roadVTex, roughness: 0.9 }));
+    coastalAvenue.rotation.x = -Math.PI / 2;
+    coastalAvenue.position.set(-3.5, 0.02, 0);
+    coastalAvenue.receiveShadow = true;
+    world.add(coastalAvenue);
 
-    const createWinTexture = (lit: boolean) => {
-      const k = document.createElement("canvas");
-      k.width = 64;
-      k.height = 128;
-      const x = k.getContext("2d")!;
-      x.fillStyle = lit ? "#000000" : "#aab3ba";
-      x.fillRect(0, 0, 64, 128);
-      for (let r = 0; r < 8; r++) {
-        for (let q = 0; q < 4; q++) {
-          const on = (r * 7 + q * 13) % 5 < 3;
-          x.fillStyle = lit ? (on ? "#ffd27a" : "#000000") : "#27394a";
-          x.fillRect(5 + q * 15, 6 + r * 15, 9, 10);
-        }
-      }
-      const t = new THREE.CanvasTexture(k);
-      t.colorSpace = THREE.SRGBColorSpace;
-      return t;
+    // Inland Main Avenues (Horizontal, East-West)
+    const roadGridMat = mat(0xffffff, { map: roadHTex, roughness: 0.9 });
+    const avenueZ = [-9.5, -4.5, 0.5, 5.5, 10.5];
+    avenueZ.forEach((z) => {
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(17.5, 1.4), roadGridMat);
+      road.rotation.x = -Math.PI / 2;
+      road.position.set(-13.0, 0.02, z);
+      road.receiveShadow = true;
+      world.add(road);
+    });
+
+    // Cross Streets (Vertical, North-South)
+    const crossStreetX = [-19.5, -15.5, -11.5, -7.5];
+    crossStreetX.forEach((x) => {
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 30), mat(0xffffff, { map: roadVTex, roughness: 0.9 }));
+      road.rotation.x = -Math.PI / 2;
+      road.position.set(x, 0.02, 0);
+      road.receiveShadow = true;
+      world.add(road);
+    });
+
+    // Elevated concrete sidewalks along streets
+    const swMaterial = mat(0xffffff, { map: sidewalkTex, roughness: 0.95 });
+    const sidewalkBlocks = [
+      { x: -5.0, z: -7.0, w: 1.8, d: 3.2 },
+      { x: -9.5, z: -7.0, w: 2.2, d: 3.2 },
+      { x: -13.5, z: -7.0, w: 2.2, d: 3.2 },
+      { x: -17.5, z: -7.0, w: 2.2, d: 3.2 },
+      { x: -5.0, z: -2.0, w: 1.8, d: 3.2 },
+      { x: -9.5, z: -2.0, w: 2.2, d: 3.2 },
+      { x: -13.5, z: -2.0, w: 2.2, d: 3.2 },
+      { x: -17.5, z: -2.0, w: 2.2, d: 3.2 },
+      { x: -5.0, z: 3.0, w: 1.8, d: 3.2 },
+      { x: -9.5, z: 3.0, w: 2.2, d: 3.2 },
+      { x: -13.5, z: 3.0, w: 2.2, d: 3.2 },
+      { x: -17.5, z: 3.0, w: 2.2, d: 3.2 },
+      { x: -5.0, z: 8.0, w: 1.8, d: 3.2 },
+      { x: -9.5, z: 8.0, w: 2.2, d: 3.2 },
+      { x: -13.5, z: 8.0, w: 2.2, d: 3.2 },
+      { x: -17.5, z: 8.0, w: 2.2, d: 3.2 },
+    ];
+
+    sidewalkBlocks.forEach((b) => {
+      const sw = new THREE.Mesh(new THREE.BoxGeometry(b.w, 0.07, b.d), swMaterial);
+      sw.position.set(b.x, 0.035, b.z);
+      sw.receiveShadow = true;
+      world.add(sw);
+    });
+
+    // Realistic Modern Curved Street Lamps
+    const streetLampsGroup = new THREE.Group();
+    world.add(streetLampsGroup);
+    const lampLightList: THREE.PointLight[] = [];
+
+    const addStreetLamp = (x: number, z: number, rotY = 0) => {
+      const lampG = new THREE.Group();
+      lampG.position.set(x, 0.07, z);
+      lampG.rotation.y = rotY;
+
+      // Pole
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 1.2, 8), darkMetalMat);
+      pole.position.y = 0.6;
+      lampG.add(pole);
+
+      // Curved arm
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.35, 6), darkMetalMat);
+      arm.rotation.z = Math.PI / 3;
+      arm.position.set(0.12, 1.25, 0);
+      lampG.add(arm);
+
+      // Luminaire head
+      const lum = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.06), metalMat);
+      lum.position.set(0.24, 1.34, 0);
+      lampG.add(lum);
+
+      // Glowing lens
+      const lens = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.01, 0.04),
+        new THREE.MeshBasicMaterial({ color: 0xffedd5 })
+      );
+      lens.position.set(0.24, 1.31, 0);
+      lampG.add(lens);
+
+      const pl = new THREE.PointLight(0xffeed9, 0, 8);
+      pl.position.set(0.24, 1.28, 0);
+      lampG.add(pl);
+      lampLightList.push(pl);
+
+      streetLampsGroup.add(lampG);
     };
 
-    const bm = mat(0xffffff, {
-      map: createWinTexture(false),
-      emissive: 0xffffff,
-      emissiveMap: createWinTexture(true),
-      emissiveIntensity: 0,
-    });
-    const roof = mat(0x7d8790);
-    const city = new THREE.InstancedMesh(bg, [bm, bm, roof, roof, bm, bm], N);
-    city.castShadow = true;
-    city.receiveShadow = true;
-    world.add(city);
-
-    const cc = new THREE.Color();
-    Bd.forEach((_, i) => city.setColorAt(i, cc.setHSL(0.55, 0.08, 0.6 + Math.random() * 0.25)));
-    if (city.instanceColor) city.instanceColor.needsUpdate = true;
-    const dm = new THREE.Object3D();
-
-    // 3. POHON DI DARATAN KOTA (DENGAN DATA POSISI UNTUK SIMULASI KEBAKARAN HUTAN)
-    const NT = 60;
-    const trGeom = new THREE.CylinderGeometry(0.06, 0.09, 0.6, 5);
-    trGeom.translate(0, 0.3, 0);
-    const tcGeom = new THREE.ConeGeometry(0.45, 1.4, 7);
-    tcGeom.translate(0, 1.2, 0);
-    const tr = new THREE.InstancedMesh(trGeom, mat(0x5a3d26), NT);
-    const tc = new THREE.InstancedMesh(tcGeom, mat(0xffffff), NT);
-    const td = new THREE.Object3D();
-
-    interface TreeData {
-      x: number;
-      z: number;
-      s: number;
-      rot: number;
-      distFromIgnition: number;
-    }
-    const Td: TreeData[] = [];
-    const treeColor = new THREE.Color();
-    const ignitionPoint = { x: -20.0, z: -12.0 };
-
-    let tn = 0;
-    for (let i = 0; tn < NT && i < 2000; i++) {
-      const x = -21 + Math.random() * 17.5;
-      const z = -13 + Math.random() * 26;
-      if (x > -16.5 && x < -4.5 && z > -7.5 && z < 4.5) continue;
-      const s = 0.7 + Math.random() * 0.8;
-      const rot = Math.random() * 6;
-      td.position.set(x, 0, z);
-      td.rotation.set(0, rot, 0);
-      td.scale.set(s, s, s);
-      td.updateMatrix();
-      tr.setMatrixAt(tn, td.matrix);
-      tc.setMatrixAt(tn, td.matrix);
-      tc.setColorAt(tn, treeColor.setHex(0x2f6b3a));
-
-      const dx = x - ignitionPoint.x;
-      const dz = z - ignitionPoint.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      Td.push({ x, z, s, rot, distFromIgnition: dist });
-      tn++;
-    }
-    tr.count = tc.count = tn;
-    if (tc.instanceColor) tc.instanceColor.needsUpdate = true;
-    tc.castShadow = tr.castShadow = true;
-    world.add(tr, tc);
-
-    // 4. PEGUNUNGAN LATAR BELAKANG DARATAN KOTA
-    const mountainMeshes: THREE.Mesh<THREE.ConeGeometry, THREE.MeshStandardMaterial>[] = [];
-    [
-      [-20, -13.5, 5.2, 7.2],
-      [-15, -13.8, 4.5, 5.8],
-      [-10, -13.2, 4.2, 6.2],
-      [-6, -13.6, 3.6, 4.8],
-    ].forEach((a) => {
-      const m = new THREE.Mesh(new THREE.ConeGeometry(a[2], a[3], 6), mat(0x5f6f63));
-      m.position.set(a[0], a[3] / 2, a[1]);
-      world.add(m);
-      mountainMeshes.push(m);
+    [-9.5, -4.5, 0.5, 5.5, 10.5].forEach((z) => {
+      addStreetLamp(-4.2, z + 0.9, 0);
+      addStreetLamp(-10.2, z + 0.9, 0);
+      addStreetLamp(-16.2, z + 0.9, 0);
     });
 
-    // Cahaya Api Dinamis untuk Kebakaran Hutan
-    const fireLight = new THREE.PointLight(0xff5500, 0, 26);
+    // ============================================================================
+    // 3. REALISTIC DETAILED VEHICLES (Cars, SUVs, Buses & Emergency Vehicles)
+    // ============================================================================
+    interface VehicleInfo {
+      group: THREE.Group;
+      baseX: number;
+      baseZ: number;
+      speed: number;
+      dir: number; // 1 or -1
+      axis: "x" | "z";
+      isEmergency?: boolean;
+      beaconLight?: THREE.PointLight;
+    }
+
+    const vehicles: VehicleInfo[] = [];
+    const vehicleCarColors = [0xef4444, 0x3b82f6, 0xf8fafc, 0x1e293b, 0x64748b, 0xf59e0b];
+
+    const createVehicleMesh = (type: "car" | "suv" | "bus" | "ambulance") => {
+      const g = new THREE.Group();
+      let length = 0.7;
+      let width = 0.35;
+      let height = 0.25;
+      let color = vehicleCarColors[(Math.random() * vehicleCarColors.length) | 0];
+
+      if (type === "bus") {
+        length = 1.3;
+        width = 0.42;
+        height = 0.4;
+        color = 0x0284c7;
+      } else if (type === "ambulance") {
+        length = 0.85;
+        width = 0.38;
+        height = 0.36;
+        color = 0xffffff;
+      } else if (type === "suv") {
+        length = 0.78;
+        width = 0.38;
+        height = 0.32;
+      }
+
+      // Chassis body
+      const bodyMat = mat(color, { metalness: 0.7, roughness: 0.3 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(length, height * 0.55, width), bodyMat);
+      body.position.y = height * 0.35;
+      body.castShadow = true;
+      g.add(body);
+
+      // Cabin / Greenhouse
+      const glassMat = mat(0x0f172a, { roughness: 0.1, metalness: 0.9 });
+      const cabinLen = type === "bus" ? length * 0.92 : length * 0.55;
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(cabinLen, height * 0.55, width * 0.88), glassMat);
+      cabin.position.set(type === "bus" ? 0 : -length * 0.05, height * 0.75, 0);
+      cabin.castShadow = true;
+      g.add(cabin);
+
+      // Wheels
+      const wheelMat = mat(0x18181b, { roughness: 0.9 });
+      const wheelGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.05, 8);
+      wheelGeo.rotateX(Math.PI / 2);
+      const wheelXOffsets = type === "bus" ? [-0.45, 0.45] : [-length * 0.28, length * 0.28];
+
+      wheelXOffsets.forEach((wx) => {
+        const w1 = new THREE.Mesh(wheelGeo, wheelMat);
+        w1.position.set(wx, 0.065, width * 0.48);
+        const w2 = new THREE.Mesh(wheelGeo, wheelMat);
+        w2.position.set(wx, 0.065, -width * 0.48);
+        g.add(w1, w2);
+      });
+
+      // Headlights & Taillights
+      const headMat = new THREE.MeshBasicMaterial({ color: 0xffedd5 });
+      const tailMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+      const hl = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.08), headMat);
+      hl.position.set(length * 0.5, height * 0.35, width * 0.25);
+      const hr = hl.clone();
+      hr.position.z = -width * 0.25;
+      const tl = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.08), tailMat);
+      tl.position.set(-length * 0.5, height * 0.35, width * 0.25);
+      const tr = tl.clone();
+      tr.position.z = -width * 0.25;
+      g.add(hl, hr, tl, tr);
+
+      // Ambulance Lightbar
+      if (type === "ambulance") {
+        const redCross = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.02), new THREE.MeshBasicMaterial({ color: 0xdc2626 }));
+        redCross.position.set(0, height * 0.6, width * 0.46);
+        g.add(redCross);
+
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.22), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+        bar.position.set(0, height * 1.08, 0);
+        g.add(bar);
+
+        const emLight = new THREE.PointLight(0xef4444, 0, 6);
+        emLight.position.set(0, height * 1.2, 0);
+        g.add(emLight);
+        return { group: g, isEmergency: true, beaconLight: emLight };
+      }
+
+      return { group: g, isEmergency: false };
+    };
+
+    // Spawn vehicles on roads & bridge
+    const spawnVehicles = () => {
+      // Avenue traffic
+      for (let i = 0; i < 8; i++) {
+        const vType = i === 0 ? "ambulance" : i % 3 === 0 ? "bus" : i % 2 === 0 ? "suv" : "car";
+        const v = createVehicleMesh(vType);
+        const z = avenueZ[i % avenueZ.length] + (i % 2 === 0 ? 0.35 : -0.35);
+        const startX = -20 + Math.random() * 15;
+        v.group.position.set(startX, 0.03, z);
+        if (i % 2 !== 0) v.group.rotation.y = Math.PI;
+        world.add(v.group);
+        vehicles.push({
+          group: v.group,
+          baseX: startX,
+          baseZ: z,
+          speed: 1.2 + Math.random() * 0.8,
+          dir: i % 2 === 0 ? 1 : -1,
+          axis: "x",
+          isEmergency: v.isEmergency,
+          beaconLight: v.beaconLight,
+        });
+      }
+
+      // Coastal highway traffic
+      for (let i = 0; i < 4; i++) {
+        const v = createVehicleMesh(i === 1 ? "suv" : "car");
+        const x = -3.5 + (i % 2 === 0 ? 0.38 : -0.38);
+        const startZ = -12 + i * 6;
+        v.group.position.set(x, 0.03, startZ);
+        v.group.rotation.y = i % 2 === 0 ? Math.PI / 2 : -Math.PI / 2;
+        world.add(v.group);
+        vehicles.push({
+          group: v.group,
+          baseX: x,
+          baseZ: startZ,
+          speed: 1.5 + Math.random() * 0.6,
+          dir: i % 2 === 0 ? 1 : -1,
+          axis: "z",
+          isEmergency: v.isEmergency,
+          beaconLight: v.beaconLight,
+        });
+      }
+    };
+    spawnVehicles();
+
+    // ============================================================================
+    // 4. ARCHITECTURAL CITY BUILDINGS (Skyscrapers, Condos, Apartments & Townhomes)
+    // ============================================================================
+    interface BuildingMeta {
+      mesh: THREE.Group;
+      baseX: number;
+      baseZ: number;
+      baseY: number;
+      height: number;
+      type: "cbd" | "apartment" | "residential";
+      phase: number;
+      roofProps: THREE.Object3D[];
+    }
+
+    const buildingList: BuildingMeta[] = [];
+    const cityGroup = new THREE.Group();
+    world.add(cityGroup);
+
+    // Architectural building builder
+    const createArchitecturalBuilding = (
+      type: "cbd" | "apartment" | "residential",
+      x: number,
+      z: number,
+      width: number,
+      depth: number,
+      height: number
+    ): BuildingMeta => {
+      const bGroup = new THREE.Group();
+      bGroup.position.set(x, 0, z);
+      const roofProps: THREE.Object3D[] = [];
+
+      const facadeIndex =
+        type === "cbd" ? 0 : type === "apartment" ? (Math.random() < 0.5 ? 1 : 2) : 3;
+      const bMat = facadeMats[facadeIndex];
+
+      if (type === "cbd") {
+        // --- High-Rise CBD Commercial Tower with Tiered Setbacks & Glass Crown ---
+        const tier1H = height * 0.55;
+        const tier1 = new THREE.Mesh(new THREE.BoxGeometry(width, tier1H, depth), [
+          bMat, bMat, roofMat, concreteMat, bMat, bMat
+        ]);
+        tier1.position.y = tier1H / 2;
+        tier1.castShadow = tier1.receiveShadow = true;
+        bGroup.add(tier1);
+
+        // Tier 2 (Setback)
+        const tier2W = width * 0.82;
+        const tier2D = depth * 0.82;
+        const tier2H = height * 0.35;
+        const tier2 = new THREE.Mesh(new THREE.BoxGeometry(tier2W, tier2H, tier2D), [
+          bMat, bMat, roofMat, roofMat, bMat, bMat
+        ]);
+        tier2.position.y = tier1H + tier2H / 2;
+        tier2.castShadow = true;
+        bGroup.add(tier2);
+
+        // Tier 3 (Glass Crown / Mechanical Penthouse)
+        const crownH = height * 0.1;
+        const crown = new THREE.Mesh(new THREE.BoxGeometry(tier2W * 0.65, crownH, tier2D * 0.65), metalMat);
+        crown.position.y = tier1H + tier2H + crownH / 2;
+        crown.castShadow = true;
+        bGroup.add(crown);
+
+        // Helipad on top of Tier 1 or Tier 2
+        if (width > 1.2) {
+          const heli = new THREE.Mesh(
+            new THREE.PlaneGeometry(tier2W * 0.7, tier2D * 0.7),
+            mat(0xffffff, { map: helipadTex, roughness: 0.9 })
+          );
+          heli.rotation.x = -Math.PI / 2;
+          heli.position.set(0, tier1H + 0.02, 0);
+          bGroup.add(heli);
+        }
+
+        // Rooftop Communications Mast with red flashing beacon
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.04, 1.4, 6), metalMat);
+        mast.position.set(0, height + 0.7, 0);
+        bGroup.add(mast);
+
+        const beacon = new THREE.Mesh(
+          new THREE.SphereGeometry(0.04, 6, 6),
+          new THREE.MeshBasicMaterial({ color: 0xef4444 })
+        );
+        beacon.position.set(0, height + 1.4, 0);
+        bGroup.add(beacon);
+        roofProps.push(beacon);
+
+        // Ground-level double-height entrance lobby & canopy
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(width * 0.5, 0.05, 0.4), darkMetalMat);
+        canopy.position.set(0, 0.4, depth / 2 + 0.2);
+        bGroup.add(canopy);
+
+      } else if (type === "apartment") {
+        // --- Multi-Story Residential Apartment Block with 3D Balconies ---
+        const main = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), [
+          bMat, bMat, roofMat, concreteMat, bMat, bMat
+        ]);
+        main.position.y = height / 2;
+        main.castShadow = main.receiveShadow = true;
+        bGroup.add(main);
+
+        // Tiered 3D Balconies on front and back
+        const floors = Math.max(2, Math.floor(height / 0.65));
+        const balcMat = mat(0x94a3b8, { roughness: 0.7 });
+        const balcGlassMat = mat(0x38bdf8, { roughness: 0.2, metalness: 0.8, transparent: true, opacity: 0.7 });
+
+        for (let f = 1; f < floors; f++) {
+          const by = f * 0.65;
+          // Front balcony slab
+          const slabF = new THREE.Mesh(new THREE.BoxGeometry(width * 0.85, 0.05, 0.3), balcMat);
+          slabF.position.set(0, by, depth / 2 + 0.15);
+          // Front glass railing
+          const railF = new THREE.Mesh(new THREE.BoxGeometry(width * 0.85, 0.18, 0.02), balcGlassMat);
+          railF.position.set(0, by + 0.1, depth / 2 + 0.29);
+          bGroup.add(slabF, railF);
+        }
+
+        // Rooftop water tank & elevator shaft
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(width * 0.35, 0.45, depth * 0.35), concreteMat);
+        shaft.position.set(-width * 0.2, height + 0.22, 0);
+        shaft.castShadow = true;
+        bGroup.add(shaft);
+
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.3, 12), metalMat);
+        tank.position.set(width * 0.22, height + 0.25, 0);
+        bGroup.add(tank);
+        roofProps.push(shaft, tank);
+
+      } else {
+        // --- Low-Rise Residential Townhouse / Shophouse ---
+        const main = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), [
+          bMat, bMat, roofMat, concreteMat, bMat, bMat
+        ]);
+        main.position.y = height / 2;
+        main.castShadow = true;
+        bGroup.add(main);
+
+        // Pitched roof
+        const roofGeo = new THREE.ConeGeometry(Math.max(width, depth) * 0.75, 0.55, 4);
+        roofGeo.rotateY(Math.PI / 4);
+        const roofPitched = new THREE.Mesh(roofGeo, mat(0xb91c1c, { roughness: 0.8 }));
+        roofPitched.position.y = height + 0.27;
+        bGroup.add(roofPitched);
+        roofProps.push(roofPitched);
+      }
+
+      cityGroup.add(bGroup);
+
+      return {
+        mesh: bGroup,
+        baseX: x,
+        baseZ: z,
+        baseY: 0,
+        height,
+        type,
+        phase: Math.random() * Math.PI * 2,
+        roofProps,
+      };
+    };
+
+    // Generate balanced urban districts
+    // District A: High-Density CBD Financial Core (Skyscrapers)
+    const cbdPositions = [
+      { x: -5.0, z: -7.0, w: 1.5, d: 1.5, h: 7.5 },
+      { x: -9.5, z: -7.0, w: 1.8, d: 1.6, h: 9.2 },
+      { x: -13.5, z: -7.0, w: 1.6, d: 1.6, h: 8.4 },
+      { x: -5.0, z: -2.0, w: 1.6, d: 1.5, h: 8.8 },
+      { x: -9.5, z: -2.0, w: 1.9, d: 1.8, h: 10.5 }, // Central Landmark Spire
+      { x: -13.5, z: -2.0, w: 1.6, d: 1.5, h: 8.0 },
+      { x: -5.0, z: 3.0, w: 1.5, d: 1.5, h: 6.8 },
+      { x: -9.5, z: 3.0, w: 1.7, d: 1.6, h: 8.5 },
+    ];
+
+    cbdPositions.forEach((p) => {
+      buildingList.push(createArchitecturalBuilding("cbd", p.x, p.z, p.w, p.d, p.h));
+    });
+
+    // District B: Mid-Rise Apartments & Condos
+    const aptPositions = [
+      { x: -5.0, z: 8.0, w: 1.5, d: 1.4, h: 4.8 },
+      { x: -9.5, z: 8.0, w: 1.7, d: 1.5, h: 5.5 },
+      { x: -13.5, z: 3.0, w: 1.6, d: 1.4, h: 5.2 },
+      { x: -13.5, z: 8.0, w: 1.5, d: 1.4, h: 4.6 },
+      { x: -5.0, z: 12.0, w: 1.4, d: 1.4, h: 4.2 },
+      { x: -9.5, z: 12.0, w: 1.6, d: 1.4, h: 4.8 },
+      { x: -13.5, z: 12.0, w: 1.5, d: 1.4, h: 4.5 },
+      { x: -5.0, z: -11.5, w: 1.4, d: 1.4, h: 4.2 },
+      { x: -9.5, z: -11.5, w: 1.6, d: 1.5, h: 4.9 },
+    ];
+
+    aptPositions.forEach((p) => {
+      buildingList.push(createArchitecturalBuilding("apartment", p.x, p.z, p.w, p.d, p.h));
+    });
+
+    // District C: Low-Rise Residential & Suburban Foothills
+    const resPositions = [
+      { x: -17.5, z: -7.0, w: 1.4, d: 1.4, h: 2.2 },
+      { x: -17.5, z: -2.0, w: 1.4, d: 1.4, h: 2.6 },
+      { x: -17.5, z: 3.0, w: 1.4, d: 1.4, h: 2.4 },
+      { x: -17.5, z: 8.0, w: 1.4, d: 1.4, h: 2.2 },
+      { x: -17.5, z: 12.0, w: 1.4, d: 1.4, h: 2.0 },
+      { x: -17.5, z: -11.5, w: 1.4, d: 1.4, h: 2.0 },
+    ];
+
+    resPositions.forEach((p) => {
+      buildingList.push(createArchitecturalBuilding("residential", p.x, p.z, p.w, p.d, p.h));
+    });
+
+    // ============================================================================
+    // 5. NATURAL MOUNTAINOUS BACKDROP & TERRAIN (Lereng Pegunungan Alami)
+    // ============================================================================
+    const mountainMeshes: THREE.Mesh[] = [];
+    const mountainGroup = new THREE.Group();
+    world.add(mountainGroup);
+
+    // Realistic multi-peak continental ridge generated via heightfield synthesis
+    const mtnGeo = new THREE.PlaneGeometry(30, 14, 48, 28);
+    mtnGeo.rotateX(-Math.PI / 2);
+    const mPos = mtnGeo.attributes.position as THREE.BufferAttribute;
+    const mColors = new Float32Array(mPos.count * 3);
+
+    for (let i = 0; i < mPos.count; i++) {
+      const mx = mPos.getX(i);
+      const mz = mPos.getZ(i);
+
+      // Procedural mountain ridge equations (layered harmonics)
+      const distFromCenter = Math.abs(mx) / 15;
+      const primaryRidge = Math.exp(-Math.pow((mz + 3) / 3.8, 2)) * 6.8;
+      const noise1 = Math.sin(mx * 0.45 + mz * 0.6) * 1.4;
+      const noise2 = Math.cos(mx * 0.9 - mz * 0.8) * 0.8;
+      const noise3 = Math.sin(mx * 1.8 + mz * 1.5) * 0.35;
+
+      let my = Math.max(0, primaryRidge * (1 - distFromCenter * 0.4) + noise1 + noise2 + noise3);
+      if (mz > 3) my *= Math.max(0, (7 - mz) / 4); // taper into city edge
+
+      mPos.setY(i, my);
+
+      // Stratified geological elevation colors:
+      // lush green forest at foot -> dark rocky crags -> snow-dusted alpine summits
+      const tHeight = Math.min(1, Math.max(0, my / 7.5));
+      let r = 0.28, g = 0.42, b = 0.22; // forest base
+      if (tHeight > 0.35 && tHeight <= 0.72) {
+        // Exposed rock crags
+        const rt = (tHeight - 0.35) / 0.37;
+        r = THREE.MathUtils.lerp(0.32, 0.45, rt);
+        g = THREE.MathUtils.lerp(0.36, 0.42, rt);
+        b = THREE.MathUtils.lerp(0.32, 0.40, rt);
+      } else if (tHeight > 0.72) {
+        // Alpine snow cap
+        const st = (tHeight - 0.72) / 0.28;
+        r = THREE.MathUtils.lerp(0.45, 0.94, st);
+        g = THREE.MathUtils.lerp(0.42, 0.96, st);
+        b = THREE.MathUtils.lerp(0.40, 0.98, st);
+      }
+
+      mColors[i * 3] = r;
+      mColors[i * 3 + 1] = g;
+      mColors[i * 3 + 2] = b;
+    }
+
+    mtnGeo.setAttribute("color", new THREE.BufferAttribute(mColors, 3));
+    mtnGeo.computeVertexNormals();
+
+    const mtnMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.9,
+      metalness: 0.05,
+      flatShading: false,
+    });
+    const mountainRidge = new THREE.Mesh(mtnGeo, mtnMat);
+    mountainRidge.position.set(-12.5, 0, -18.0);
+    mountainRidge.castShadow = mountainRidge.receiveShadow = true;
+    mountainGroup.add(mountainRidge);
+    mountainMeshes.push(mountainRidge);
+
+    // Dynamic fire light for wildfire simulation
+    const fireLight = new THREE.PointLight(0xff5500, 0, 30);
     fireLight.position.set(-16, 3.5, -8);
     world.add(fireLight);
 
-    // 5. PULAU GUNUNG BERAPI DI TENGAH LAUT (X = 13, Z = 0)
-    const islandBase = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 7.8, 1.2, 32), mat(0x3d352e));
-    islandBase.position.set(13, -0.1, 0);
-    islandBase.receiveShadow = true;
-    world.add(islandBase);
-
-    const islandSlope = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 6.2, 0.8, 32), mat(0x22262a));
-    islandSlope.position.set(13, 0.4, 0);
-    world.add(islandSlope);
-
-    // Kerucut kawah prosedural
-    const vm = mat(0xffffff, { emissive: 0xff4a00, emissiveIntensity: 0 });
-    const vg = new THREE.CylinderGeometry(1.0, 3.8, 5.0, 48, 16, true);
-    const vp = vg.attributes.position as THREE.BufferAttribute;
-    const vcl = new Float32Array(vp.count * 3);
-    for (let i = 0; i < vp.count; i++) {
-      const x = vp.getX(i);
-      const y = vp.getY(i);
-      const z = vp.getZ(i);
-      const n = Math.sin(x * 2.8 + z * 2.2) * Math.sin(z * 3.5 - y * 1.8) + 0.5 * Math.sin(x * 6 + y * 4.5);
-      const r = 1 + n * 0.08;
-      vp.setX(i, x * r);
-      vp.setZ(i, z * r);
-      const t0 = (y + 2.5) / 5.0;
-      const st = Math.sin(Math.atan2(z, x) * 6 + y * 2) > 0.65 && t0 > 0.4 ? 1 : 0;
-      const gv = 0.15 + n * 0.04 + t0 * 0.06;
-      vcl[i * 3] = gv + st * 0.55;
-      vcl[i * 3 + 1] = gv * 0.8 + st * 0.12;
-      vcl[i * 3 + 2] = gv * 0.75;
+    // ============================================================================
+    // 6. REALISTIC VEGETATION (Deciduous Trees, Pines, Coastal Palms & Shrubs)
+    // ============================================================================
+    interface VegData {
+      group: THREE.Group;
+      x: number;
+      z: number;
+      scale: number;
+      type: "tree" | "pine" | "palm";
+      distFromIgnition: number;
+      foliageMeshes: THREE.Mesh[];
+      trunkMesh: THREE.Mesh;
     }
-    vg.setAttribute("color", new THREE.BufferAttribute(vcl, 3));
-    vg.computeVertexNormals();
-    vm.vertexColors = true;
-    vm.flatShading = true;
-    const vol = new THREE.Mesh(vg, vm);
-    vol.position.set(13, 2.5, 0);
-    vol.castShadow = vol.receiveShadow = true;
-    world.add(vol);
 
-    const lavaCircle = new THREE.CircleGeometry(1.05, 32);
-    lavaCircle.rotateX(-Math.PI / 2);
-    const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff6a1a });
-    const lava = new THREE.Mesh(lavaCircle, lavaMat);
-    lava.position.set(13, 4.95, 0);
-    world.add(lava);
+    const vegetationList: VegData[] = [];
+    const vegGroup = new THREE.Group();
+    world.add(vegGroup);
 
-    const lavaStream = new THREE.Mesh(
-      new THREE.BoxGeometry(0.35, 3.8, 0.15),
-      mat(0xff4500, { emissive: 0xff2200, emissiveIntensity: 0.8 })
+    const trunkMat = mat(0x4a3525, { roughness: 0.9 });
+    const leafColors = [0x2e6930, 0x3b823e, 0x245828, 0x4d964f];
+    const palmFrondColor = 0x2d7a36;
+
+    // Organic Deciduous Tree with fluffy multi-cluster canopy
+    const createDeciduousTree = (x: number, z: number, s: number): VegData => {
+      const tg = new THREE.Group();
+      tg.position.set(x, 0, z);
+      tg.scale.set(s, s, s);
+
+      // Curved woody trunk
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.9, 7), trunkMat);
+      trunk.position.y = 0.45;
+      trunk.castShadow = true;
+      tg.add(trunk);
+
+      // Multi-cluster foliage canopy
+      const fMeshes: THREE.Mesh[] = [];
+      const col = leafColors[(Math.random() * leafColors.length) | 0];
+      const folMat = mat(col, { roughness: 0.85 });
+
+      const clusterOffsets = [
+        [0, 1.15, 0, 0.48],
+        [-0.22, 1.0, 0.18, 0.38],
+        [0.24, 0.98, -0.16, 0.36],
+        [0.15, 1.35, 0.12, 0.32],
+      ];
+
+      clusterOffsets.forEach(([ox, oy, oz, rad]) => {
+        const sphere = new THREE.Mesh(new THREE.DodecahedronGeometry(rad, 1), folMat);
+        sphere.position.set(ox, oy, oz);
+        sphere.castShadow = true;
+        tg.add(sphere);
+        fMeshes.push(sphere);
+      });
+
+      vegGroup.add(tg);
+
+      const dx = x - (-20.0);
+      const dz = z - (-12.0);
+      return {
+        group: tg,
+        x,
+        z,
+        scale: s,
+        type: "tree",
+        distFromIgnition: Math.sqrt(dx * dx + dz * dz),
+        foliageMeshes: fMeshes,
+        trunkMesh: trunk,
+      };
+    };
+
+    // Coastal Palm Tree (Along Coastal Promenade & Beach)
+    const createPalmTree = (x: number, z: number, s: number): VegData => {
+      const tg = new THREE.Group();
+      tg.position.set(x, 0, z);
+      tg.scale.set(s, s, s);
+
+      // Slender curved trunk
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.4, 6), mat(0x6b5344, { roughness: 0.9 }));
+      trunk.position.y = 0.7;
+      trunk.rotation.z = 0.08;
+      trunk.castShadow = true;
+      tg.add(trunk);
+
+      // Arching palm fronds
+      const fMeshes: THREE.Mesh[] = [];
+      const frondMat = mat(palmFrondColor, { roughness: 0.7 });
+      const numFronds = 6;
+      for (let i = 0; i < numFronds; i++) {
+        const frond = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.85, 4), frondMat);
+        frond.rotation.z = Math.PI / 2.6;
+        frond.rotation.y = (i * Math.PI * 2) / numFronds;
+        frond.position.set(0, 1.38, 0);
+        frond.castShadow = true;
+        tg.add(frond);
+        fMeshes.push(frond);
+      }
+
+      vegGroup.add(tg);
+
+      const dx = x - (-20.0);
+      const dz = z - (-12.0);
+      return {
+        group: tg,
+        x,
+        z,
+        scale: s,
+        type: "palm",
+        distFromIgnition: Math.sqrt(dx * dx + dz * dz),
+        foliageMeshes: fMeshes,
+        trunkMesh: trunk,
+      };
+    };
+
+    // Spawn Palm Trees along coastal boulevard
+    for (let z = -12; z <= 12; z += 2.2) {
+      vegetationList.push(createPalmTree(-2.7, z, 0.85 + Math.random() * 0.25));
+    }
+
+    // Spawn Forest & Hillside Deciduous Trees
+    for (let i = 0; i < 55; i++) {
+      const tx = -21.5 + Math.random() * 18.0;
+      const tz = -14.5 + Math.random() * 28.0;
+      // Keep clear of CBD buildings and roads
+      if (tx > -16.0 && tx < -4.0 && tz > -8.5 && tz < 6.5) continue;
+      const scale = 0.75 + Math.random() * 0.65;
+      vegetationList.push(createDeciduousTree(tx, tz, scale));
+    }
+
+    // ============================================================================
+    // 7. REALISTIC VOLCANIC ISLAND & CRATER (Stratovolcano Krakatau)
+    // ============================================================================
+    const volcanoGroup = new THREE.Group();
+    volcanoGroup.position.set(13.0, 0, 0);
+    world.add(volcanoGroup);
+
+    // Island base emerging from seabed
+    const volcanoIslandBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(6.6, 8.4, 1.4, 36),
+      mat(0x27272a, { roughness: 0.95 })
     );
-    lavaStream.position.set(11.4, 2.3, 0.6);
-    lavaStream.rotation.set(0.3, -0.5, -0.7);
-    world.add(lavaStream);
+    volcanoIslandBase.position.y = -0.2;
+    volcanoIslandBase.receiveShadow = true;
+    volcanoGroup.add(volcanoIslandBase);
 
-    const vlight = new THREE.PointLight(0xff5a1a, 0, 28);
-    vlight.position.set(13, 5.8, 0);
-    world.add(vlight);
+    // Rugged Stratovolcano Cone with caldera rim and erosion gullies
+    const volGeo = new THREE.CylinderGeometry(1.2, 4.4, 5.2, 48, 20, true);
+    const volPos = volGeo.attributes.position as THREE.BufferAttribute;
+    const volColors = new Float32Array(volPos.count * 3);
 
-    // 6. JEMBATAN MEMBENTANG DARI KOTA MELINTASI SELAT AIR KE PULAU SEBERANG
+    for (let i = 0; i < volPos.count; i++) {
+      const vx = volPos.getX(i);
+      const vy = volPos.getY(i);
+      const vz = volPos.getZ(i);
+
+      // Natural erosion chutes and crags
+      const angle = Math.atan2(vz, vx);
+      const gully = Math.sin(angle * 7) * 0.14 + Math.cos(angle * 13) * 0.08;
+      const radial = 1 + gully * (1 - (vy + 2.6) / 5.2);
+
+      volPos.setX(i, vx * radial);
+      volPos.setZ(i, vz * radial);
+
+      // Basalt rock, ash talus, and volcanic sulfur coloring
+      const tH = (vy + 2.6) / 5.2;
+      const isSulfur = Math.sin(angle * 5) > 0.7 && tH > 0.6;
+      let r = 0.18 + tH * 0.08;
+      let g = 0.16 + tH * 0.06;
+      let b = 0.15 + tH * 0.05;
+
+      if (isSulfur) {
+        r = 0.85;
+        g = 0.68;
+        b = 0.18;
+      }
+
+      volColors[i * 3] = r;
+      volColors[i * 3 + 1] = g;
+      volColors[i * 3 + 2] = b;
+    }
+
+    volGeo.setAttribute("color", new THREE.BufferAttribute(volColors, 3));
+    volGeo.computeVertexNormals();
+
+    const volMat = mat(0xffffff, {
+      vertexColors: true,
+      roughness: 0.92,
+      emissive: 0xff4500,
+      emissiveIntensity: 0,
+    });
+    const volcanoMesh = new THREE.Mesh(volGeo, volMat);
+    volcanoMesh.position.y = 2.6;
+    volcanoMesh.castShadow = volcanoMesh.receiveShadow = true;
+    volcanoGroup.add(volcanoMesh);
+
+    // Glowing Molten Lava Lake inside the crater
+    const lavaLake = new THREE.Mesh(
+      new THREE.CircleGeometry(1.22, 32),
+      new THREE.MeshBasicMaterial({ color: 0xff5500 })
+    );
+    lavaLake.rotation.x = -Math.PI / 2;
+    lavaLake.position.y = 5.15;
+    volcanoGroup.add(lavaLake);
+
+    // Active Lava Chute cascading into the ocean
+    const lavaChute = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 4.2, 0.18),
+      mat(0xff3700, { emissive: 0xff2200, emissiveIntensity: 0.9 })
+    );
+    lavaChute.position.set(-1.8, 2.3, 0.7);
+    lavaChute.rotation.set(0.35, -0.4, -0.65);
+    volcanoGroup.add(lavaChute);
+
+    const volcanoPointLight = new THREE.PointLight(0xff5500, 0, 32);
+    volcanoPointLight.position.set(0, 6.2, 0);
+    volcanoGroup.add(volcanoPointLight);
+
+    // ============================================================================
+    // 8. REALISTIC CABLE-STAYED / SUSPENSION BRIDGE
+    // ============================================================================
     const bridgeGroup = new THREE.Group();
     bridgeGroup.position.set(2.0, 0, 5.0);
     world.add(bridgeGroup);
 
-    const abCity = box(1.6, 1.3, 2.2, mat(0x4b5563));
-    abCity.position.set(-5.6, 0.45, 0);
-    bridgeGroup.add(abCity);
+    // Abutments connecting city coastal avenue and island
+    const abutmentCity = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 2.2), concreteMat);
+    abutmentCity.position.set(-5.6, 0.45, 0);
+    bridgeGroup.add(abutmentCity);
 
-    const abIsland = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.6, 1.4, 16), mat(0x334155));
-    abIsland.position.set(5.6, 0.2, 0);
-    bridgeGroup.add(abIsland);
+    const abutmentIsland = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.6, 1.4, 18), concreteMat);
+    abutmentIsland.position.set(5.6, 0.2, 0);
+    bridgeGroup.add(abutmentIsland);
 
-    const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 2.3, 16), mat(0x4b5563));
-    p1.position.set(-2.8, 0.2, 0);
-    bridgeGroup.add(p1);
+    // Heavy reinforced concrete pier caissons embedded in the seabed
+    const pier1 = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 2.4, 24), concreteMat);
+    pier1.position.set(-2.8, 0.2, 0);
+    const pier2 = pier1.clone();
+    pier2.position.set(2.8, 0.2, 0);
+    bridgeGroup.add(pier1, pier2);
 
-    const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 2.3, 16), mat(0x4b5563));
-    p2.position.set(2.8, 0.2, 0);
-    bridgeGroup.add(p2);
-
-    const pylonBase = box(1.2, 2.2, 2.4, mat(0x4b5563));
+    // Central Pylon Base (Diamond / A-Frame Tower Base)
+    const pylonBase = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.2, 2.4), concreteMat);
     pylonBase.position.set(0, -0.1, 0);
     bridgeGroup.add(pylonBase);
 
-    const py1 = box(0.35, 3.6, 0.35, mat(0xf3f4f6));
-    py1.position.set(0, 2.6, 0.9);
-    bridgeGroup.add(py1);
+    // Twin Sculpted Aerodynamic Towers (Pylons)
+    const pylonLeg1 = new THREE.Mesh(new THREE.BoxGeometry(0.38, 4.2, 0.38), metalMat);
+    pylonLeg1.position.set(0, 2.9, 0.95);
+    const pylonLeg2 = pylonLeg1.clone();
+    pylonLeg2.position.set(0, 2.9, -0.95);
 
-    const py2 = box(0.35, 3.6, 0.35, mat(0xf3f4f6));
-    py2.position.set(0, 2.6, -0.9);
-    bridgeGroup.add(py2);
+    // Cross portal beam & tower top
+    const crossPortal = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.2, 2.2), metalMat);
+    crossPortal.position.set(0, 4.1, 0);
+    const pylonCrown = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.35, 2.2), metalMat);
+    pylonCrown.position.set(0, 4.95, 0);
 
-    const pyTop = box(0.4, 0.3, 2.1, mat(0xf3f4f6));
-    pyTop.position.set(0, 4.2, 0);
-    bridgeGroup.add(pyTop);
+    // Red/White aviation warning beacons on top of pylon
+    const pylonBeacon1 = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+    pylonBeacon1.position.set(0, 5.2, 0.95);
+    const pylonBeacon2 = pylonBeacon1.clone();
+    pylonBeacon2.position.z = -0.95;
 
-    const deck = box(11.2, 0.25, 1.6, mat(0x374151));
-    deck.position.set(0, 1.35, 0);
-    deck.castShadow = true;
-    bridgeGroup.add(deck);
+    bridgeGroup.add(pylonLeg1, pylonLeg2, crossPortal, pylonCrown, pylonBeacon1, pylonBeacon2);
 
-    const lineDeckGeo = new THREE.PlaneGeometry(11.0, 0.08);
-    lineDeckGeo.rotateX(-Math.PI / 2);
-    const lineDeck = new THREE.Mesh(lineDeckGeo, new THREE.MeshBasicMaterial({ color: 0xf59e0b }));
-    lineDeck.position.set(0, 0.13, 0);
-    deck.add(lineDeck);
+    // Streamlined Hollow Steel Box Girder Deck
+    const bridgeDeck = new THREE.Group();
+    bridgeDeck.position.set(0, 1.4, 0);
+    bridgeGroup.add(bridgeDeck);
 
-    const r1 = box(11.2, 0.28, 0.06, mat(0xd1d5db, { metalness: 0.3, roughness: 0.5 }));
-    r1.position.set(0, 0.25, 0.76);
-    deck.add(r1);
+    const deckGirder = new THREE.Mesh(new THREE.BoxGeometry(11.2, 0.3, 1.7), darkMetalMat);
+    deckGirder.castShadow = true;
+    bridgeDeck.add(deckGirder);
 
-    const r2 = box(11.2, 0.28, 0.06, mat(0xd1d5db, { metalness: 0.3, roughness: 0.5 }));
-    r2.position.set(0, 0.25, -0.76);
-    deck.add(r2);
+    // 4-lane roadway with markings
+    const bridgeRoadMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(11.0, 1.5),
+      mat(0xffffff, { map: bridgeRoadTex, roughness: 0.9 })
+    );
+    bridgeRoadMesh.rotation.x = -Math.PI / 2;
+    bridgeRoadMesh.position.y = 0.16;
+    bridgeRoadMesh.receiveShadow = true;
+    bridgeDeck.add(bridgeRoadMesh);
 
-    const cableMat = mat(0xe2e8f0, { metalness: 0.6, roughness: 0.3 });
-    const addCable = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) => {
-      const v1 = new THREE.Vector3(x1, y1, z1);
-      const v2 = new THREE.Vector3(x2, y2, z2);
-      const mid = new THREE.Vector3().addVectors(v1, v2).multiplyScalar(0.5);
-      const dir = new THREE.Vector3().subVectors(v2, v1);
+    // Concrete median divider barrier & steel guardrails
+    const centerBarrier = new THREE.Mesh(new THREE.BoxGeometry(11.0, 0.16, 0.08), concreteMat);
+    centerBarrier.position.y = 0.24;
+    const outerRail1 = new THREE.Mesh(new THREE.BoxGeometry(11.0, 0.26, 0.05), metalMat);
+    outerRail1.position.set(0, 0.28, 0.82);
+    const outerRail2 = outerRail1.clone();
+    outerRail2.position.z = -0.82;
+    bridgeDeck.add(centerBarrier, outerRail1, outerRail2);
+
+    // High-Tensile Steel Stay Cables in Fan Array
+    const stayCableMat = mat(0xf1f5f9, { metalness: 0.85, roughness: 0.2 });
+    const addStayCable = (deckX: number, pylonY: number, zSide: number) => {
+      const p1 = new THREE.Vector3(deckX, 0.2, zSide * 0.82);
+      const p2 = new THREE.Vector3(0, pylonY - 1.4, zSide * 0.95);
+      const dir = new THREE.Vector3().subVectors(p2, p1);
       const len = dir.length();
-      const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, len, 6), cableMat);
-      cyl.position.copy(mid);
-      cyl.setRotationFromQuaternion(quat);
-      deck.add(cyl);
+      const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+
+      const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, len, 6), stayCableMat);
+      cable.position.copy(mid);
+      cable.setRotationFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()));
+      bridgeDeck.add(cable);
     };
 
     [
-      [1.4, 2.3],
-      [2.8, 2.65],
-      [4.2, 2.95],
+      [-4.6, 4.6],
+      [-3.4, 4.3],
+      [-2.2, 3.9],
+      [-1.0, 3.4],
+      [1.0, 3.4],
+      [2.2, 3.9],
+      [3.4, 4.3],
+      [4.6, 4.6],
     ].forEach(([dx, py]) => {
-      addCable(-dx, 0.22, 0.76, 0, py, 0.88);
-      addCable(dx, 0.22, 0.76, 0, py, 0.88);
-      addCable(-dx, 0.22, -0.76, 0, py, -0.88);
-      addCable(dx, 0.22, -0.76, 0, py, -0.88);
+      addStayCable(dx, py, 1);
+      addStayCable(dx, py, -1);
     });
 
-    // 7. LAUT & SELAT AIR MENGALIR DI BAWAH JEMBATAN (Pusat X = 13.5, Z = 0)
-    const sgeo = new THREE.PlaneGeometry(32, 32, 64, 64);
-    sgeo.rotateX(-Math.PI / 2);
-    sgeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(sgeo.attributes.position.count * 3), 3));
-    const seaMat = mat(0xffffff, {
+    // Street Lamps along bridge deck
+    for (let x = -4.5; x <= 4.5; x += 3.0) {
+      const bLamp = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.55, 6), metalMat);
+      bLamp.position.set(x, 0.44, 0.82);
+      const bLight = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.04), new THREE.MeshBasicMaterial({ color: 0xffedd5 }));
+      bLight.position.set(x, 0.72, 0.8);
+      bridgeDeck.add(bLamp, bLight);
+    }
+
+    // Moving commuter vehicle on the bridge
+    const bridgeCarMesh = createVehicleMesh("car");
+    bridgeCarMesh.group.position.set(-3.0, 0.17, 0.35);
+    bridgeDeck.add(bridgeCarMesh.group);
+
+    // ============================================================================
+    // 9. REALISTIC OCEAN WATER, WAVES & TSUNAMI FLOOD
+    // ============================================================================
+    const seaGeo = new THREE.PlaneGeometry(32, 32, 128, 128);
+    seaGeo.rotateX(-Math.PI / 2);
+    seaGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(seaGeo.attributes.position.count * 3), 3));
+
+    const seaMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
       transparent: true,
       opacity: 0.88,
-      roughness: 0.15,
+      roughness: 0.08,
       metalness: 0.3,
+      envMapIntensity: 0.8,
     });
-    const sea = new THREE.Mesh(sgeo, seaMat);
+    const sea = new THREE.Mesh(seaGeo, seaMat);
+    sea.position.set(13.5, -0.28, 0);
     sea.receiveShadow = true;
-    sea.position.set(13.5, -0.3, 0);
     world.add(sea);
 
-    const flood = box(14, 1.2, 30, mat(0x1a6b8c, { transparent: true, opacity: 0.75 }));
+    // Tsunami Inland Inundation Water Sheet
+    const flood = new THREE.Mesh(
+      new THREE.BoxGeometry(16, 1.4, 30),
+      mat(0x0e7490, { transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.2 })
+    );
     flood.position.set(-2.5, -0.3, 0);
     flood.scale.x = 0.001;
     world.add(flood);
 
-    // Lumpur likuifaksi & retakan patahan
-    const mudCircle = new THREE.CircleGeometry(8, 32);
-    mudCircle.rotateX(-Math.PI / 2);
-    const mudMat = mat(0x6b4f33, { transparent: true, opacity: 0 });
-    const mud = new THREE.Mesh(mudCircle, mudMat);
-    mud.position.set(-11, 0.03, -2);
-    world.add(mud);
+    // Liquefaction mud boils & surface slurry pool
+    const mudPool = new THREE.Mesh(
+      new THREE.CircleGeometry(8.5, 36),
+      mat(0x573e23, { transparent: true, opacity: 0, roughness: 0.95 })
+    );
+    mudPool.rotation.x = -Math.PI / 2;
+    mudPool.position.set(-11.5, 0.04, -2.0);
+    world.add(mudPool);
 
-    const ck: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>[] = [];
-    for (let i = 0; i < 12; i++) {
-      const k = box(1, 0.03, 0.1, mat(0x151210));
-      k.position.set(-11 + (Math.random() - 0.5) * 3, 0.03, -9 + i * 1.6);
-      k.rotation.y = Math.PI / 2 + (Math.random() - 0.5) * 1.1;
-      k.scale.x = 0.001;
-      k.userData.L = 1.5 + Math.random() * 2.2;
-      world.add(k);
-      ck.push(k);
+    // Tectonic fault fissures
+    const faultCracks: THREE.Mesh[] = [];
+    for (let i = 0; i < 14; i++) {
+      const crack = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 0.14), mat(0x09090b, { roughness: 1.0 }));
+      crack.position.set(-11.5 + (Math.random() - 0.5) * 2.8, 0.035, -10 + i * 1.5);
+      crack.rotation.y = Math.PI / 2 + (Math.random() - 0.5) * 1.1;
+      crack.scale.x = 0.001;
+      crack.userData.maxLen = 1.6 + Math.random() * 2.4;
+      world.add(crack);
+      faultCracks.push(crack);
     }
 
-    // 8. PARTIKEL SISTEM DENGAN SHADER (Mendukung Volcano, Rubble, & Wildfire)
-    const NP = 900;
+    // ============================================================================
+    // 10. MULTI-PURPOSE GPU PARTICLE SYSTEM (Volcano, Rubble, Fire, Smoke & Rain)
+    // ============================================================================
+    const NP = 1200;
     const pp = new Float32Array(NP * 3).fill(-100);
     const pc = new Float32Array(NP * 3);
     const pv = new Float32Array(NP * 3);
@@ -931,14 +1951,14 @@ export function ThreeEarthquakeCanvas({
       t.colorSpace = THREE.SRGBColorSpace;
       return t;
     };
-    const skyD = makeSkyTexture("#4a86b8", "#a9cde0", "#e7eef0");
-    const skyN = makeSkyTexture("#02050c", "#0b1830", "#1b2c44");
-    const nightC = new THREE.Color(0x07111e);
-    const dayC = new THREE.Color(0xdce8ee);
-    const bgc = new THREE.Color();
-    scene.fog = new THREE.Fog(0xdce8ee, 50, 140);
+    const skyDay = makeSkyTexture("#1e40af", "#38bdf8", "#e0f2fe");
+    const skyNight = makeSkyTexture("#020617", "#0f172a", "#1e293b");
+    const nightFogColor = new THREE.Color(0x090d16);
+    const dayFogColor = new THREE.Color(0xcbe4f2);
+    const currentFogColor = new THREE.Color();
+    scene.fog = new THREE.FogExp2(0xcbe4f2, 0.007);
 
-    // ---------------- Resize handling ----------------
+    // ---------------- Resize Handling ----------------
     const handleResize = () => {
       const w = container.clientWidth;
       const h = container.clientHeight;
@@ -946,20 +1966,21 @@ export function ThreeEarthquakeCanvas({
       renderer.setSize(w, h, false);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      PU.uS.value = h * renderer.getPixelRatio() * 1.07;
+      PU.uS.value = h * renderer.getPixelRatio() * 1.08;
     };
     handleResize();
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(container);
     window.addEventListener("resize", handleResize);
 
-    // ---------------- Animation frame loop ----------------
+    // ---------------- Animation Loop ----------------
     const seismoHist = new Array<number>(260).fill(0);
     let seismoFrameCount = 0;
     const clock = new THREE.Clock();
     let tm = 0;
     let disposed = false;
     let rafId = 0;
+    const colorScratch = new THREE.Color();
 
     const frame = () => {
       if (disposed) return;
@@ -979,254 +2000,293 @@ export function ThreeEarthquakeCanvas({
       const dur = 4 + (S.mw - 5) * 3;
       const shake =
         run && t < dur && m !== "wildfire"
-          ? c.pga * (1 - (0.5 * t) / dur) * (m === "volcano" ? 0.3 : 1)
+          ? c.pga * (1 - (0.5 * t) / dur) * (m === "volcano" ? 0.35 : 1)
           : 0;
       const prog = Math.min(1, t / dur);
 
-      // 1. World Shake
+      // 1. World Ground Motion
       world.position.set(
-        (Math.random() - 0.5) * shake * 0.12,
-        (Math.random() - 0.5) * shake * 0.06,
-        (Math.random() - 0.5) * shake * 0.12
+        (Math.random() - 0.5) * shake * 0.14,
+        (Math.random() - 0.5) * shake * 0.07,
+        (Math.random() - 0.5) * shake * 0.14
       );
 
-      // 2. City Buildings: Sway, Collapse, Liquefaction
+      // 2. City Buildings: Elastic Sway, Failure & Differential Settlement
       const collapse = m === "quake" && run ? Math.max(0, Math.min(1, (c.pga - 0.6) / 0.9)) * prog : 0;
       const liq = m === "liquefaction" ? Math.min(1, t / 12) * Math.min(1, c.pga / 0.5) : 0;
 
-      Bd.forEach((b, i) => {
-        const sw = Math.sin(t * 20 + b.ph) * shake * 0.06;
+      buildingList.forEach((b, i) => {
+        const sw = Math.sin(t * 18 + b.phase) * shake * 0.055;
         const cl = i % 3 === 0 ? collapse : 0;
-        const lq = liq * (0.3 + (i % 4) * 0.25);
-        dm.position.set(b.x + sw * b.h * 0.3, -lq - cl * b.h * 0.3, b.z);
-        dm.rotation.set(
-          cl * 0.5 * (i % 2 ? 1 : -1),
-          0,
-          sw + (lq ? lq * 0.18 * (i % 2 ? 1 : -1) : 0) + cl * 0.4 * (i % 2 ? -1 : 1)
-        );
-        dm.scale.set(b.w, b.h * (1 - cl * 0.4), b.w);
-        dm.updateMatrix();
-        city.setMatrixAt(i, dm.matrix);
-      });
-      city.instanceMatrix.needsUpdate = true;
+        const lq = liq * (0.3 + (i % 4) * 0.22);
 
-      // 2b. Simulasi Kebakaran Hutan (Rothermel Spread & Tree Burning)
+        b.mesh.position.set(
+          b.baseX + sw * (b.height * 0.3),
+          b.baseY - lq - cl * (b.height * 0.28),
+          b.baseZ
+        );
+
+        b.mesh.rotation.set(
+          cl * 0.45 * (i % 2 ? 1 : -1),
+          0,
+          sw + (lq ? lq * 0.15 * (i % 2 ? 1 : -1) : 0) + cl * 0.35 * (i % 2 ? -1 : 1)
+        );
+
+        // Falling debris / dust clouds
+        if (cl > 0.3 && run && Math.random() < 0.25) {
+          emit(
+            3,
+            b.baseX + (Math.random() - 0.5) * 1.5,
+            b.height * (1 - cl * 0.5),
+            b.baseZ + (Math.random() - 0.5) * 1.5,
+            (Math.random() - 0.5) * 1.2,
+            1.4 + Math.random() * 1.5,
+            (Math.random() - 0.5) * 1.2,
+            2.2
+          );
+        }
+      });
+
+      // 3. Animated Urban Traffic & Emergency Flashing
+      vehicles.forEach((v, vi) => {
+        if (v.axis === "x") {
+          let nx = v.group.position.x + v.speed * v.dir * dt;
+          if (nx > -3.8) {
+            nx = -20;
+          } else if (nx < -20.2) {
+            nx = -4.0;
+          }
+          v.group.position.x = nx;
+        } else {
+          let nz = v.group.position.z + v.speed * v.dir * dt;
+          if (nz > 14) nz = -14;
+          else if (nz < -14) nz = 14;
+          v.group.position.z = nz;
+        }
+
+        // Emergency lightbar flashing
+        if (v.isEmergency && v.beaconLight) {
+          const isFlashing = Math.sin(tm * 20 + vi) > 0;
+          v.beaconLight.intensity = isFlashing ? 3.0 : 0.2;
+        }
+      });
+
+      // 4. Wildfire Simulation (Rothermel Rate of Spread)
       const fireRadius = m === "wildfire" && run ? t * c.fireSpreadRate : 0;
       let burningTreesCount = 0;
       let charredTreesCount = 0;
       let sumBurnX = 0;
       let sumBurnZ = 0;
 
-      for (let i = 0; i < tn; i++) {
-        const tree = Td[i];
+      vegetationList.forEach((veg, idx) => {
         if (m === "wildfire" && t > 0) {
-          const d = fireRadius - tree.distFromIgnition;
+          const d = fireRadius - veg.distFromIgnition;
           if (d < 0) {
-            tc.setColorAt(i, treeColor.setHex(0x2f6b3a));
-            td.scale.set(tree.s, tree.s, tree.s);
-          } else if (d < 4.8) {
+            // Healthy unburnt tree
+            veg.foliageMeshes.forEach((fm) => {
+              (fm.material as THREE.MeshStandardMaterial).color.setHex(0x2e6930);
+            });
+            veg.group.scale.set(veg.scale, veg.scale, veg.scale);
+          } else if (d < 5.0) {
+            // Actively blazing tree
             burningTreesCount++;
-            sumBurnX += tree.x;
-            sumBurnZ += tree.z;
-            const flicker = 0.5 + 0.5 * Math.sin(tm * 18 + i * 2.1);
-            treeColor.setRGB(1.0, 0.22 + flicker * 0.45, 0.04);
-            tc.setColorAt(i, treeColor);
+            sumBurnX += veg.x;
+            sumBurnZ += veg.z;
+            const flicker = 0.5 + 0.5 * Math.sin(tm * 18 + idx * 2.2);
 
-            if (run && Math.random() < 0.32) {
+            veg.foliageMeshes.forEach((fm) => {
+              (fm.material as THREE.MeshStandardMaterial).color.setRGB(1.0, 0.25 + flicker * 0.45, 0.05);
+            });
+
+            // Flame particles
+            if (run && Math.random() < 0.35) {
               emit(
                 4,
-                tree.x + (Math.random() - 0.5) * 0.5,
-                0.7 + Math.random() * 0.9 * tree.s,
-                tree.z + (Math.random() - 0.5) * 0.5,
-                0.35 + Math.random() * 0.5,
-                1.6 + Math.random() * 2.2,
+                veg.x + (Math.random() - 0.5) * 0.6,
+                0.8 + Math.random() * veg.scale * 1.2,
+                veg.z + (Math.random() - 0.5) * 0.6,
+                0.35 + Math.random() * 0.4,
+                1.8 + Math.random() * 2.4,
                 0.25 + (Math.random() - 0.5) * 0.5,
-                0.7 + Math.random() * 0.6
+                0.8 + Math.random() * 0.6
               );
             }
-            if (run && Math.random() < 0.22) {
+            // Dense smoke plume
+            if (run && Math.random() < 0.24) {
               emit(
                 5,
-                tree.x + (Math.random() - 0.5) * 0.6,
-                1.4 * tree.s,
-                tree.z + (Math.random() - 0.5) * 0.6,
-                0.7 + Math.random() * 0.7,
-                2.0 + Math.random() * 1.8,
-                0.35 + (Math.random() - 0.5) * 0.4,
-                4.5 + Math.random() * 2.5
+                veg.x + (Math.random() - 0.5) * 0.7,
+                1.5 * veg.scale,
+                veg.z + (Math.random() - 0.5) * 0.7,
+                0.8 + Math.random() * 0.8,
+                2.2 + Math.random() * 2.0,
+                0.4 + (Math.random() - 0.5) * 0.5,
+                4.8 + Math.random() * 2.5
               );
             }
-            td.scale.set(tree.s, tree.s * (1 - d * 0.04), tree.s);
+            veg.group.scale.set(veg.scale, veg.scale * (1 - d * 0.04), veg.scale);
           } else {
+            // Charred black tree
             charredTreesCount++;
-            tc.setColorAt(i, treeColor.setHex(0x1f1d1b));
-            td.scale.set(tree.s * 0.65, tree.s * 0.55, tree.s * 0.65);
-
-            if (run && Math.random() < 0.03) {
-              emit(5, tree.x, 1.0 * tree.s, tree.z, 0.5 + Math.random() * 0.4, 1.3 + Math.random() * 0.8, 0.2, 3.5);
-            }
+            veg.foliageMeshes.forEach((fm) => {
+              (fm.material as THREE.MeshStandardMaterial).color.setHex(0x18181b);
+            });
+            veg.group.scale.set(veg.scale * 0.7, veg.scale * 0.6, veg.scale * 0.7);
           }
-          td.position.set(tree.x, 0, tree.z);
-          td.rotation.set(0, tree.rot, 0);
-          td.updateMatrix();
-          tc.setMatrixAt(i, td.matrix);
         } else {
-          tc.setColorAt(i, treeColor.setHex(0x2f6b3a));
-          td.position.set(tree.x, 0, tree.z);
-          td.rotation.set(0, tree.rot, 0);
-          td.scale.set(tree.s, tree.s, tree.s);
-          td.updateMatrix();
-          tc.setMatrixAt(i, td.matrix);
+          // Normal state
+          veg.foliageMeshes.forEach((fm) => {
+            (fm.material as THREE.MeshStandardMaterial).color.setHex(0x2e6930);
+          });
+          veg.group.scale.set(veg.scale, veg.scale, veg.scale);
         }
-      }
-      if (tc.instanceColor) tc.instanceColor.needsUpdate = true;
-      tc.instanceMatrix.needsUpdate = true;
+      });
 
-      // Emisi api di lereng pegunungan latar belakang saat mode Wildfire
+      // Wildfire Dynamic Fire Light & Mountain Scorching
       if (m === "wildfire" && run) {
-        mountainMeshes.forEach((mt, idx) => {
-          const mtDist = Math.max(0, idx * 4.5 - fireRadius * 0.8);
-          const burnFactor = Math.min(1, Math.max(0, (fireRadius - idx * 3.5) / 10));
-          mt.material.color.setHex(0x5f6f63).lerp(cc.setHex(0x2a2421), burnFactor * 0.75);
-
-          if (mtDist < 2 && Math.random() < 0.35) {
-            const angle = Math.random() * Math.PI * 2;
-            const rad = Math.random() * 3.2;
-            emit(
-              4,
-              mt.position.x + Math.cos(angle) * rad,
-              1.0 + Math.random() * 3.5,
-              mt.position.z + Math.sin(angle) * rad,
-              0.4 + Math.random() * 0.5,
-              2.2 + Math.random() * 2.5,
-              0.3,
-              0.9 + Math.random() * 0.5
-            );
-          }
+        mountainMeshes.forEach((mt) => {
+          const burnProgress = Math.min(1, fireRadius / 15);
+          (mt.material as THREE.MeshStandardMaterial).color
+            .setHex(0xffffff)
+            .lerp(colorScratch.setHex(0x33261d), burnProgress * 0.6);
         });
 
         if (burningTreesCount > 0) {
           fireLight.position.set(sumBurnX / burningTreesCount, 3.2, sumBurnZ / burningTreesCount);
-          fireLight.intensity = (1.8 + Math.min(3.5, burningTreesCount * 0.25)) * (0.85 + Math.random() * 0.3);
+          fireLight.intensity = (2.2 + Math.min(4.0, burningTreesCount * 0.22)) * (0.85 + Math.random() * 0.3);
         } else {
-          fireLight.intensity = 1.2 * (0.8 + Math.random() * 0.4);
+          fireLight.intensity = 1.0;
         }
       } else {
         fireLight.intensity = 0;
         mountainMeshes.forEach((mt) => {
-          mt.material.color.setHex(0x5f6f63);
+          (mt.material as THREE.MeshStandardMaterial).color.setHex(0xffffff);
         });
       }
 
-      // 3. Ground & Geology
-      const wildfireChar = m === "wildfire" ? Math.min(0.65, (charredTreesCount / Math.max(1, tn)) * 0.85) : 0;
-      ground.material.color
-        .setHex(0x8aa860)
-        .lerp(cc.setHex(0x7a6a4a), liq)
-        .lerp(cc.setHex(0x3a322b), wildfireChar);
-      mudMat.opacity = liq * 0.7;
-      layer.position.x = -12.25 + (m === "quake" && run ? Math.min(S.slip * 0.04, 1) * prog : 0);
-      layer.position.z = m === "quake" && run ? Math.sin(t * 3) * shake * 0.03 : 0;
+      // 5. Ground, Mud & Fault Ruptures
+      const wildfireChar = m === "wildfire" ? Math.min(0.65, (charredTreesCount / Math.max(1, vegetationList.length)) * 0.85) : 0;
+      (ground.material as THREE.MeshStandardMaterial).color
+        .setHex(0x658245)
+        .lerp(colorScratch.setHex(0x5a4a35), liq)
+        .lerp(colorScratch.setHex(0x272421), wildfireChar);
 
-      // Fault cracks
-      ck.forEach((k) => {
+      (mudPool.material as THREE.MeshStandardMaterial).opacity = liq * 0.75;
+      geologicalLayer.position.x = -12.25 + (m === "quake" && run ? Math.min(S.slip * 0.04, 1.2) * prog : 0);
+      geologicalLayer.position.z = m === "quake" && run ? Math.sin(t * 3) * shake * 0.03 : 0;
+
+      faultCracks.forEach((k) => {
         const v =
-          (m === "quake" || m === "liquefaction") && t > 0 ? Math.min(1, t / dur) * Math.min(1, c.pga / 0.35) : 0;
-        k.scale.x = Math.max(0.001, v * (k.userData.L as number));
+          (m === "quake" || m === "liquefaction") && t > 0
+            ? Math.min(1, t / dur) * Math.min(1, c.pga / 0.35)
+            : 0;
+        k.scale.x = Math.max(0.001, v * (k.userData.maxLen as number));
       });
 
-      // 4. Bridge Vibration & Breakage over the Strait
-      const bk = m === "quake" && run ? Math.max(0, Math.min(1, (c.pga - 0.85) / 0.5)) * prog : 0;
-      deck.position.y = 1.35 + Math.sin(t * 14) * shake * 0.08 - bk * 0.7;
-      deck.rotation.z = bk * 0.35;
+      // 6. Suspension Bridge Dynamics
+      const bridgeDamage = m === "quake" && run ? Math.max(0, Math.min(1, (c.pga - 0.82) / 0.5)) * prog : 0;
+      bridgeDeck.position.y = 1.4 + Math.sin(t * 14) * shake * 0.08 - bridgeDamage * 0.75;
+      bridgeDeck.rotation.z = bridgeDamage * 0.32;
 
-      // 5. Ocean Current & Tsunami Wave Front
+      // 7. Oceanic Current, Tsunami Swell & Inundation Surge
       const etaArr = run && m === "tsunami" ? c.eta : null;
       const fx = etaArr !== null ? 26 - 28.5 * Math.min(1, t / etaArr) : 35;
-      const hit = etaArr !== null ? Math.max(0, Math.min(1, (t - etaArr) / 6)) : 0;
-      const lvl = Math.min(c.th * 1.2, 4.5);
-      const pos = sgeo.attributes.position as THREE.BufferAttribute;
+      const hit = etaArr !== null ? Math.max(0, Math.min(1, (t - etaArr) / 6.0)) : 0;
+      const lvl = Math.min(c.th * 1.25, 4.8);
+      const sPos = seaGeo.attributes.position as THREE.BufferAttribute;
+      const sCol = seaGeo.attributes.color as THREE.BufferAttribute;
 
-      for (let i = 0; i < pos.count; i++) {
-        const x = pos.getX(i);
-        const z = pos.getZ(i);
-        const wx = 13.5 + x;
-        let y = Math.sin(wx * 0.45 + tm * 1.8) * 0.08 + Math.cos(z * 0.4 + tm * 1.2) * 0.06;
-        if (Math.abs(z - 5.0) < 3.0 && wx < 8.0) {
-          y += Math.sin(wx * 1.2 - tm * 2.5) * 0.04;
-        }
+      for (let i = 0; i < sPos.count; i++) {
+        const sx = sPos.getX(i);
+        const sz = sPos.getZ(i);
+        const wx = 13.5 + sx;
+
+        // Oceanic swell & shoreline ripples
+        let wy = Math.sin(wx * 0.45 + tm * 1.8) * 0.08 + Math.cos(sz * 0.4 + tm * 1.2) * 0.06;
+
+        // Tsunami Wave Wall Front
         if (etaArr !== null) {
           const dist = wx - fx;
-          const spread = dist < 0 ? 2.0 : 6.0;
-          y +=
-            lvl * 0.95 * Math.exp(-Math.pow(dist / spread, 2)) +
-            (Math.abs(dist) < 3.5 ? Math.sin(wx * 4 + tm * 9) * 0.06 * lvl : 0);
+          const spread = dist < 0 ? 2.2 : 6.2;
+          wy +=
+            lvl * 0.98 * Math.exp(-Math.pow(dist / spread, 2)) +
+            (Math.abs(dist) < 3.8 ? Math.sin(wx * 4.5 + tm * 9) * 0.07 * lvl : 0);
         }
-        pos.setY(i, y);
+        sPos.setY(i, wy);
 
+        // Realistic ocean water depth colors: deep ocean navy -> turquoise -> whitecap foam
         const depthFactor = Math.min(1, Math.max(0, (wx + 2.5) / 25));
-        const foam = Math.max(0, Math.min(1, (y - 0.12) / 0.5));
-        const colAttr = sgeo.attributes.color as THREE.BufferAttribute;
-        colAttr.setXYZ(
+        const foam = Math.max(0, Math.min(1, (wy - 0.12) / 0.5));
+        sCol.setXYZ(
           i,
-          0.03 + depthFactor * 0.02 + foam * 0.9,
-          0.35 + depthFactor * 0.15 + foam * 0.65,
-          0.55 + depthFactor * 0.35 + foam * 0.45
+          0.02 + depthFactor * 0.03 + foam * 0.95,
+          0.32 + depthFactor * 0.18 + foam * 0.7,
+          0.58 + depthFactor * 0.38 + foam * 0.5
         );
       }
-      pos.needsUpdate = true;
-      (sgeo.attributes.color as THREE.BufferAttribute).needsUpdate = true;
-      sgeo.computeVertexNormals();
+      sPos.needsUpdate = true;
+      sCol.needsUpdate = true;
+      seaGeo.computeVertexNormals();
 
-      sea.position.y = -0.3 + lvl * 0.35 * hit;
+      sea.position.y = -0.28 + lvl * 0.35 * hit;
       flood.scale.x = Math.max(0.001, hit);
-      flood.position.x = -2.5 - 6.5 * hit;
-      flood.scale.y = 1 + lvl * hit * 0.8;
+      flood.position.x = -2.5 - 7.5 * hit;
+      flood.scale.y = 1 + lvl * hit * 0.85;
 
-      // 6. Volcano Island Crater in the Sea
-      const er = m === "volcano" ? Math.min(1, t / 3) * Math.max(0.2, (S.mw - 4) / 4) : 0;
-      vm.emissiveIntensity = m === "volcano" ? 0.06 + er * 0.22 : 0;
-      lavaMat.color.setHSL(0.045, 1, m === "volcano" ? 0.38 + Math.random() * 0.15 : 0.08);
-      (lavaStream.material as THREE.MeshStandardMaterial).emissiveIntensity =
-        m === "volcano" ? 0.9 + Math.sin(t * 8) * 0.3 : 0.2;
-      vlight.intensity = m === "volcano" ? (1.2 + er * 2.8) * (0.85 + Math.random() * 0.3) : 0;
+      // 8. Volcanic Eruption & Magma Lake Pulsing
+      const er = m === "volcano" ? Math.min(1, t / 3.0) * Math.max(0.2, (S.mw - 4) / 4) : 0;
+      volMat.emissiveIntensity = m === "volcano" ? 0.08 + er * 0.25 : 0;
+      (lavaLake.material as THREE.MeshBasicMaterial).color.setHSL(0.045, 1, m === "volcano" ? 0.42 + Math.random() * 0.18 : 0.08);
+      (lavaChute.material as THREE.MeshStandardMaterial).emissiveIntensity =
+        m === "volcano" ? 0.95 + Math.sin(t * 8) * 0.35 : 0.2;
+      volcanoPointLight.intensity = m === "volcano" ? (1.5 + er * 3.2) * (0.85 + Math.random() * 0.3) : 0;
 
-      // 7. Particle Emissions
+      // Volcanic Pyroclasts & Plume Particle Emissions
       if (m === "volcano" && run) {
-        for (let k = 0; k < Math.floor(er * 7); k++) {
+        for (let k = 0; k < Math.floor(er * 8); k++) {
           emit(
             0,
-            13 + (Math.random() - 0.5) * 0.9,
-            5.1,
-            (Math.random() - 0.5) * 0.9,
-            (Math.random() - 0.5) * 3,
-            5 + Math.random() * 5 * er,
-            (Math.random() - 0.5) * 3,
+            13 + (Math.random() - 0.5) * 1.0,
+            5.2,
+            (Math.random() - 0.5) * 1.0,
+            (Math.random() - 0.5) * 3.2,
+            5.5 + Math.random() * 5.5 * er,
+            (Math.random() - 0.5) * 3.2,
             1.8
           );
         }
-        if (Math.random() < er * 1.6) {
+        if (Math.random() < er * 1.8) {
           emit(
             1,
-            13 + (Math.random() - 0.5),
-            5.3,
-            (Math.random() - 0.5),
-            0.4 + Math.random() * 0.6,
-            2.5 + Math.random() * 2.5,
+            13 + (Math.random() - 0.5) * 1.2,
+            5.4,
+            (Math.random() - 0.5) * 1.2,
+            0.45 + Math.random() * 0.65,
+            2.8 + Math.random() * 2.8,
             Math.random() - 0.5,
-            6
+            6.5
           );
         }
-        emit(2, -10 + Math.random() * 26, 14, -10 + Math.random() * 20, 0, -1.2, 0, 10);
+        emit(2, -10 + Math.random() * 28, 15, -10 + Math.random() * 22, 0, -1.2, 0, 10);
       }
 
-      // Building collapse rubble dust
-      if (shake > 0.15 && Math.random() < shake) {
-        const b = Bd[(Math.random() * N) | 0];
-        emit(3, b.x, b.h, b.z, Math.random() - 0.5, 1.2, Math.random() - 0.5, 2);
+      // Tsunami rain & sea spray
+      if (m === "tsunami" && run && t > 2) {
+        for (let ri = 0; ri < 5; ri++) {
+          emit(
+            6,
+            -20 + Math.random() * 40,
+            18,
+            -15 + Math.random() * 30,
+            (Math.random() - 0.5) * 0.3,
+            -14 - Math.random() * 4,
+            (Math.random() - 0.5) * 0.3,
+            1.2 + Math.random() * 0.4
+          );
+        }
       }
 
-      // Particle physics update
+      // Particle Physics Update
       for (let i = 0; i < NP; i++) {
         if (pl[i] <= 0) continue;
         pl[i] -= dt;
@@ -1236,68 +2296,71 @@ export function ThreeEarthquakeCanvas({
           pp[j + 1] = -100;
           continue;
         }
-        pv[j + 1] -= (k === 0 ? 9 : k === 1 || k === 5 ? -0.6 : k === 4 ? -1.2 : 0) * dt;
+        pv[j + 1] -= (k === 0 ? 9.2 : k === 1 || k === 5 ? -0.65 : k === 4 ? -1.3 : 0) * dt;
         pp[j] += pv[j] * dt;
         pp[j + 1] += pv[j + 1] * dt;
         pp[j + 2] += pv[j + 2] * dt;
+
         if (k === 0 && pp[j + 1] < -0.3) {
           pl[i] = 0;
           pp[j + 1] = -100;
         }
+
         const L = pl[i] / pL0[i];
-        let r, g, b2, s, a;
+        let r = 1, g = 1, b2 = 1, s = 0.3, a = 1;
+
         if (k === 0) {
-          r = 1;
-          g = 0.35 + 0.45 * L;
-          b2 = 0.08;
-          s = 0.25;
-          a = 1;
+          // Pyroclastic lava bomb
+          r = 1; g = 0.35 + 0.45 * L; b2 = 0.08; s = 0.28; a = 1;
         } else if (k === 1) {
-          r = g = b2 = 0.2 + 0.3 * (1 - L);
-          s = 0.8 + (1 - L) * 2.6;
-          a = 0.6 * L;
+          // Volcanic ash plume
+          r = g = b2 = 0.18 + 0.28 * (1 - L); s = 0.9 + (1 - L) * 2.8; a = 0.65 * L;
         } else if (k === 2) {
-          r = g = b2 = 0.55;
-          s = 0.22;
-          a = 0.7 * Math.min(1, L * 3);
+          // Ashfall
+          r = g = b2 = 0.52; s = 0.2; a = 0.7 * Math.min(1, L * 3);
         } else if (k === 4) {
-          r = 1.0;
-          g = 0.2 + 0.65 * L;
-          b2 = 0.05 * L;
-          s = 0.35 + (1 - L) * 0.55;
-          a = 0.9 * L;
+          // Fire flame
+          r = 1.0; g = 0.22 + 0.68 * L; b2 = 0.05 * L; s = 0.38 + (1 - L) * 0.6; a = 0.95 * L;
         } else if (k === 5) {
-          r = g = b2 = 0.16 + 0.22 * (1 - L);
-          s = 0.65 + (1 - L) * 2.2;
-          a = 0.55 * L;
+          // Wildfire smoke
+          r = g = b2 = 0.15 + 0.2 * (1 - L); s = 0.75 + (1 - L) * 2.4; a = 0.6 * L;
+        } else if (k === 6) {
+          // Rain / spray drops
+          r = 0.75 + 0.25 * L; g = 0.88 + 0.12 * L; b2 = 1.0; s = 0.09; a = 0.6 * L;
         } else {
-          r = 0.72;
-          g = 0.64;
-          b2 = 0.52;
-          s = 0.5 + (1 - L) * 2;
-          a = 0.55 * L;
+          // Building collapse dust
+          r = 0.72; g = 0.65; b2 = 0.55; s = 0.55 + (1 - L) * 2.2; a = 0.6 * L;
         }
-        pc[j] = r;
-        pc[j + 1] = g;
-        pc[j + 2] = b2;
-        ps[i] = s;
-        pa[i] = a;
+
+        pc[j] = r; pc[j + 1] = g; pc[j + 2] = b2;
+        ps[i] = s; pa[i] = a;
       }
       pg.attributes.position.needsUpdate = true;
       pg.attributes.color.needsUpdate = true;
       pg.attributes.sz.needsUpdate = true;
       pg.attributes.al.needsUpdate = true;
 
-      // 8. Day & Night Transition
+      // 9. Day & Night Transition
       const n = S.night ? 1 : 0;
-      bgc.copy(dayC).lerp(nightC, n);
-      scene.background = S.night ? skyN : skyD;
-      if (scene.fog) scene.fog.color.copy(bgc);
-      hemi.intensity = 0.85 - 0.6 * n;
-      sun.intensity = 0.95 - 0.75 * n;
-      bm.emissiveIntensity = 0.55 * n;
+      currentFogColor.copy(dayFogColor).lerp(nightFogColor, n);
+      scene.background = S.night ? skyNight : skyDay;
+      if (scene.fog) {
+        scene.fog.color.copy(currentFogColor);
+        (scene.fog as THREE.FogExp2).density = S.night ? 0.012 : 0.007;
+      }
 
-      // 9. Camera Smooth Lerp Transition
+      hemiLight.intensity = 1.1 - 0.85 * n;
+      sunLight.intensity = 1.6 - 1.4 * n;
+
+      // Turn on building window emissives & street lamps at night
+      facadeMats.forEach((fm) => {
+        fm.emissiveIntensity = 0.65 * n;
+      });
+      lampLightList.forEach((pl) => {
+        pl.intensity = 1.8 * n;
+      });
+
+      // 10. Smooth Camera Orbit Lerp
       if (S.camLerp > 0) {
         S.camLerp -= dt;
         camera.position.lerp(camTargets.pos, 0.07);
@@ -1306,7 +2369,7 @@ export function ThreeEarthquakeCanvas({
       controls.update();
       renderer.render(scene, camera);
 
-      // 10. Warning Banner Message
+      // 11. Warning Alert Banner
       let bannerMsg = "";
       if (run) {
         if (m === "quake" && c.pga > 0.6 && t < dur + 3) {
@@ -1327,11 +2390,12 @@ export function ThreeEarthquakeCanvas({
         } else if (m === "wildfire") {
           const pctBurned = Math.min(
             100,
-            Math.round(((burningTreesCount + charredTreesCount) / Math.max(1, tn)) * 100)
+            Math.round(((burningTreesCount + charredTreesCount) / Math.max(1, vegetationList.length)) * 100)
           );
           bannerMsg = `KEBAKARAN HUTAN (Model Rothermel): Laju rambat ${c.fireSpreadRate.toFixed(1)} m/s • Area terdampak ${pctBurned}%`;
         }
       }
+
       if (bannerWrapRef.current && bannerTextRef.current) {
         if (bannerMsg) {
           bannerTextRef.current.textContent = bannerMsg;
@@ -1341,7 +2405,7 @@ export function ThreeEarthquakeCanvas({
         }
       }
 
-      // 11. Seismograph Drawing Engine
+      // 12. Seismograph Drawing Engine
       seismoFrameCount++;
       const seismoCanvas = seismoRef.current;
       if (seismoFrameCount % 2 === 0 && seismoCanvas) {
@@ -1376,7 +2440,7 @@ export function ThreeEarthquakeCanvas({
     };
     frame();
 
-    // ---------------- Cleanup on unmount ----------------
+    // ---------------- Cleanup on Unmount ----------------
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
@@ -1389,7 +2453,7 @@ export function ThreeEarthquakeCanvas({
         const mesh = obj as THREE.Mesh;
         if (mesh.geometry) mesh.geometry.dispose();
         const material = mesh.material;
-        if (Array.isArray(material)) material.forEach((mm) => mm.dispose());
+        if (Array.isArray(material)) material.forEach((m) => m.dispose());
         else if (material) material.dispose();
       });
       renderer.dispose();
@@ -1403,7 +2467,7 @@ export function ThreeEarthquakeCanvas({
   }, []);
 
   // ============================================================================
-  // Render (React JSX + Tailwind)
+  // Render JSX & UI
   // ============================================================================
   return (
     <div
@@ -1431,7 +2495,7 @@ export function ThreeEarthquakeCanvas({
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 backdrop-blur-md text-slate-200">
           <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping" />
           <span className="text-[11px] font-bold tracking-tight text-white uppercase font-mono">
-            3D Disaster Simulator
+            3D Disaster Simulator Pro
           </span>
           <span ref={hudTimeRef} className="text-[10px] text-slate-400 font-mono ml-auto">
             STANDBY
@@ -1536,7 +2600,12 @@ export function ThreeEarthquakeCanvas({
             PGA: 1.50g
           </span>
         </div>
-        <canvas ref={seismoRef} width={260} height={52} className="w-full h-[52px] rounded-lg border border-slate-800/90 bg-slate-950/80 block" />
+        <canvas
+          ref={seismoRef}
+          width={260}
+          height={52}
+          className="w-full h-[52px] rounded-lg border border-slate-800/90 bg-slate-950/80 block"
+        />
       </div>
 
       {/* Bottom Right: Play / Pause / Reset Interactive Controls */}
