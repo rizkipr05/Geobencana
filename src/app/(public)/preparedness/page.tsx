@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useTheme } from "@/context/theme-context";
 import {
   Backpack,
   CheckCircle2,
@@ -133,6 +134,7 @@ const CHECKLIST_ITEMS: ChecklistItem[] = [
 ];
 
 export default function PreparednessPage() {
+  const { isDark } = useTheme();
   const [checkedIds, setCheckedIds] = useState<string[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -180,33 +182,43 @@ export default function PreparednessPage() {
       : CHECKLIST_ITEMS.filter((i) => i.category === activeCategory);
 
   return (
-    <div className="flex-1 bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full">
+    <div
+      className={cn(
+        "flex-1 p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto w-full transition-colors duration-200",
+        isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
+      )}
+    >
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="p-1 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <span className="p-1 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20">
               <Backpack className="h-4 w-4" />
             </span>
-            <span className="text-xs font-mono font-semibold uppercase tracking-wider text-rose-400">
+            <span className="text-xs font-mono font-semibold uppercase tracking-wider text-rose-500">
               72-HOUR SURVIVAL PROTOCOL
             </span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
+          <h1 className={cn("text-2xl sm:text-3xl font-extrabold transition-colors", isDark ? "text-white" : "text-slate-900")}>
             Kesiapsiagaan Darurat &amp; Tas Siaga Bencana
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">
+          <p className={cn("text-xs sm:text-sm mt-1 max-w-2xl transition-colors", isDark ? "text-slate-400" : "text-slate-600")}>
             Panduan mandiri bertahan hidup 72 jam pertama pasca bencana sebelum kedatangan tim bantuan
             resmi dan prosedur standar operasi evakuasi.
           </p>
         </div>
 
         {/* Readiness Meter Card */}
-        <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center gap-4 shrink-0 shadow-lg">
+        <div
+          className={cn(
+            "p-4 rounded-2xl flex items-center gap-4 shrink-0 shadow-sm border transition-colors",
+            isDark ? "bg-slate-900/90 border-slate-800" : "bg-white border-slate-200 shadow-slate-200/50"
+          )}
+        >
           <div className="relative h-14 w-14 flex items-center justify-center">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
               <path
-                className="text-slate-800"
+                className={isDark ? "text-slate-800" : "text-slate-200"}
                 strokeWidth="3.5"
                 stroke="currentColor"
                 fill="none"
@@ -222,15 +234,19 @@ export default function PreparednessPage() {
                 d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
               />
             </svg>
-            <span className="absolute font-mono font-black text-sm text-white">{progressPercent}%</span>
+            <span className={cn("absolute font-mono font-black text-sm", isDark ? "text-white" : "text-slate-900")}>
+              {progressPercent}%
+            </span>
           </div>
 
           <div>
-            <span className="text-[11px] font-mono text-slate-400 uppercase">Kesiapan Tas Siaga</span>
-            <p className="text-xs font-bold text-white mt-0.5">
+            <span className={cn("text-[11px] font-mono uppercase", isDark ? "text-slate-400" : "text-slate-500")}>
+              Kesiapan Tas Siaga
+            </span>
+            <p className={cn("text-xs font-bold mt-0.5", isDark ? "text-white" : "text-slate-900")}>
               {checkedIds.length} dari {CHECKLIST_ITEMS.length} Barang Siap
             </p>
-            <span className="text-[10px] text-emerald-400">Tersimpan di Peramban</span>
+            <span className="text-[10px] text-emerald-500 font-medium">Tersimpan di Peramban</span>
           </div>
         </div>
       </div>
@@ -254,8 +270,12 @@ export default function PreparednessPage() {
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 transition-colors border",
                   activeCategory === cat.id
-                    ? "bg-rose-600/20 text-rose-300 border-rose-500/40"
-                    : "bg-slate-900/60 text-slate-400 border-slate-800 hover:text-slate-200"
+                    ? isDark
+                      ? "bg-rose-600/20 text-rose-300 border-rose-500/40"
+                      : "bg-rose-50 text-rose-600 border-rose-200"
+                    : isDark
+                    ? "bg-slate-900/60 text-slate-400 border-slate-800 hover:text-slate-200"
+                    : "bg-white text-slate-600 border-slate-200 hover:text-slate-900 hover:bg-slate-100 shadow-sm"
                 )}
               >
                 {cat.label}
@@ -266,7 +286,10 @@ export default function PreparednessPage() {
           {checkedIds.length > 0 && (
             <button
               onClick={handleReset}
-              className="text-xs text-slate-400 hover:text-rose-400 flex items-center gap-1.5 transition-colors self-start sm:self-auto"
+              className={cn(
+                "text-xs flex items-center gap-1.5 transition-colors self-start sm:self-auto cursor-pointer",
+                isDark ? "text-slate-400 hover:text-rose-400" : "text-slate-500 hover:text-rose-600"
+              )}
             >
               <RotateCcw className="h-3.5 w-3.5" />
               <span>Reset Checklist</span>
@@ -285,15 +308,19 @@ export default function PreparednessPage() {
                 className={cn(
                   "p-4 rounded-xl border transition-all cursor-pointer flex items-start gap-3.5 select-none",
                   isChecked
-                    ? "bg-rose-950/20 border-rose-500/40 text-slate-200"
-                    : "bg-slate-900/60 border-slate-800 hover:border-slate-750 text-slate-300"
+                    ? isDark
+                      ? "bg-rose-950/20 border-rose-500/40 text-slate-200"
+                      : "bg-rose-50/70 border-rose-300 text-slate-800 shadow-sm"
+                    : isDark
+                    ? "bg-slate-900/60 border-slate-800 hover:border-slate-750 text-slate-300"
+                    : "bg-white border-slate-200 hover:border-slate-300 text-slate-800 shadow-sm"
                 )}
               >
                 <button
                   type="button"
                   className={cn(
                     "mt-0.5 shrink-0 transition-colors",
-                    isChecked ? "text-rose-500" : "text-slate-600"
+                    isChecked ? "text-rose-500" : isDark ? "text-slate-600" : "text-slate-400"
                   )}
                 >
                   {isChecked ? (
@@ -308,18 +335,33 @@ export default function PreparednessPage() {
                     <h3
                       className={cn(
                         "text-xs sm:text-sm font-bold",
-                        isChecked && "line-through text-slate-400"
+                        isChecked
+                          ? isDark
+                            ? "line-through text-slate-500"
+                            : "line-through text-slate-400"
+                          : isDark
+                          ? "text-slate-200"
+                          : "text-slate-900"
                       )}
                     >
                       {item.title}
                     </h3>
                     {item.essential && (
-                      <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 font-bold shrink-0">
+                      <span
+                        className={cn(
+                          "text-[9px] font-mono px-1.5 py-0.2 rounded font-bold shrink-0 border",
+                          isDark
+                            ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                            : "bg-rose-50 text-rose-600 border-rose-200"
+                        )}
+                      >
                         WAJIB
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">{item.desc}</p>
+                  <p className={cn("text-xs mt-1 leading-relaxed", isDark ? "text-slate-400" : "text-slate-600")}>
+                    {item.desc}
+                  </p>
                 </div>
               </div>
             );
@@ -328,22 +370,29 @@ export default function PreparednessPage() {
       </div>
 
       {/* Section 2: Standard Operating Procedures (SOP) by Hazard */}
-      <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl">
+      <div
+        className={cn(
+          "p-6 rounded-2xl border transition-colors",
+          isDark ? "bg-slate-900/80 border-slate-800 shadow-xl" : "bg-white border-slate-200 shadow-sm"
+        )}
+      >
         <div className="flex items-center gap-2 mb-2">
-          <ShieldCheck className="h-5 w-5 text-emerald-400" />
-          <h2 className="text-lg font-bold text-white">Panduan SOP Tanggap Darurat Bencana</h2>
+          <ShieldCheck className="h-5 w-5 text-emerald-500" />
+          <h2 className={cn("text-lg font-bold", isDark ? "text-white" : "text-slate-900")}>
+            Panduan SOP Tanggap Darurat Bencana
+          </h2>
         </div>
-        <p className="text-xs text-slate-400 mb-6">
+        <p className={cn("text-xs mb-6", isDark ? "text-slate-400" : "text-slate-600")}>
           Pedoman baku tindakan penyelamatan diri berdasarkan jenis ancaman bencana:
         </p>
 
         {/* Hazard Selector Tabs */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
           {[
-            { id: "gempa", label: "Gempa Bumi", icon: AlertTriangle, color: "text-rose-400" },
-            { id: "tsunami", label: "Tsunami", icon: Waves, color: "text-sky-400" },
-            { id: "gunung", label: "Erupsi Gunung Api", icon: Mountain, color: "text-amber-400" },
-            { id: "banjir", label: "Banjir Bandang", icon: CloudRain, color: "text-cyan-400" },
+            { id: "gempa", label: "Gempa Bumi", icon: AlertTriangle, color: "text-rose-500" },
+            { id: "tsunami", label: "Tsunami", icon: Waves, color: "text-sky-500" },
+            { id: "gunung", label: "Erupsi Gunung Api", icon: Mountain, color: "text-amber-500" },
+            { id: "banjir", label: "Banjir Bandang", icon: CloudRain, color: "text-cyan-500" },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeSopTab === tab.id;
@@ -352,10 +401,14 @@ export default function PreparednessPage() {
                 key={tab.id}
                 onClick={() => setActiveSopTab(tab.id as "gempa" | "tsunami" | "gunung" | "banjir")}
                 className={cn(
-                  "p-3 rounded-xl border flex items-center gap-2.5 transition-all text-xs font-bold",
+                  "p-3 rounded-xl border flex items-center gap-2.5 transition-all text-xs font-bold cursor-pointer",
                   isActive
-                    ? "bg-slate-800 border-rose-500/40 text-white shadow-sm"
-                    : "bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200"
+                    ? isDark
+                      ? "bg-slate-800 border-rose-500/40 text-white shadow-sm"
+                      : "bg-rose-50 border-rose-300 text-rose-700 shadow-sm"
+                    : isDark
+                    ? "bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200"
+                    : "bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                 )}
               >
                 <Icon className={cn("h-4 w-4", tab.color)} />
@@ -368,22 +421,32 @@ export default function PreparednessPage() {
         {/* SOP Content Cards */}
         {activeSopTab === "gempa" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-850">
-              <h3 className="text-xs font-mono font-bold text-rose-400 uppercase mb-1">
+            <div
+              className={cn(
+                "p-4 rounded-xl border transition-colors",
+                isDark ? "bg-slate-950/60 border-slate-850" : "bg-slate-50/80 border-slate-200"
+              )}
+            >
+              <h3 className="text-xs font-mono font-bold text-rose-500 uppercase mb-1">
                 Fase 1: Saat Guncangan Berlangsung (Drop - Cover - Hold On)
               </h3>
-              <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside mt-2">
+              <ul className={cn("text-xs space-y-1.5 list-disc list-inside mt-2", isDark ? "text-slate-300" : "text-slate-700")}>
                 <li>Segera berlutut (Drop) untuk mencegah terjatuh akibat getaran kuat.</li>
                 <li>Lindungi kepala dan leher (Cover) di bawah meja kokoh atau menggunakan lengan.</li>
                 <li>Pegang erat kaki meja (Hold On) hingga guncangan sepenuhnya berhenti.</li>
                 <li>Jauhi jendela kaca, cermin, lemari gantung, dan dinding luar bangunan.</li>
               </ul>
             </div>
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-850">
-              <h3 className="text-xs font-mono font-bold text-amber-400 uppercase mb-1">
+            <div
+              className={cn(
+                "p-4 rounded-xl border transition-colors",
+                isDark ? "bg-slate-950/60 border-slate-850" : "bg-slate-50/80 border-slate-200"
+              )}
+            >
+              <h3 className="text-xs font-mono font-bold text-amber-500 uppercase mb-1">
                 Fase 2: Segera Setelah Guncangan Reda
               </h3>
-              <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside mt-2">
+              <ul className={cn("text-xs space-y-1.5 list-disc list-inside mt-2", isDark ? "text-slate-300" : "text-slate-700")}>
                 <li>Matikan kompor gas dan turunkan pemutus arus listrik (MCB) rumah.</li>
                 <li>Ambil Tas Siaga Bencana dan evakuasi menggunakan tangga darurat (JANGAN LIFT).</li>
                 <li>Menuju titik kumpul (Assembly Point) di area terbuka bebas tiang listrik &amp; pohon tua.</li>
@@ -394,11 +457,16 @@ export default function PreparednessPage() {
 
         {activeSopTab === "tsunami" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-850">
-              <h3 className="text-xs font-mono font-bold text-sky-400 uppercase mb-1">
+            <div
+              className={cn(
+                "p-4 rounded-xl border transition-colors",
+                isDark ? "bg-slate-950/60 border-slate-850" : "bg-slate-50/80 border-slate-200"
+              )}
+            >
+              <h3 className="text-xs font-mono font-bold text-sky-500 uppercase mb-1">
                 Tanda Alam &amp; Prinsip 20-20-20
               </h3>
-              <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside mt-2">
+              <ul className={cn("text-xs space-y-1.5 list-disc list-inside mt-2", isDark ? "text-slate-300" : "text-slate-700")}>
                 <li>Gempa berdurasi &gt;20 detik: Segera evakuasi tanpa menunggu konfirmasi sirine.</li>
                 <li>Air laut surut mendadak mengekspos karang &amp; bau garam/belerang menyengat.</li>
                 <li>Bergerak cepat menuju elevasi &gt;20 meter di atas permukaan laut atau lantai 3+ gedung TES.</li>
@@ -410,11 +478,16 @@ export default function PreparednessPage() {
 
         {activeSopTab === "gunung" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-850">
-              <h3 className="text-xs font-mono font-bold text-amber-400 uppercase mb-1">
+            <div
+              className={cn(
+                "p-4 rounded-xl border transition-colors",
+                isDark ? "bg-slate-950/60 border-slate-850" : "bg-slate-50/80 border-slate-200"
+              )}
+            >
+              <h3 className="text-xs font-mono font-bold text-amber-500 uppercase mb-1">
                 Mitigasi Erupsi &amp; Hujan Abu Vulkanik
               </h3>
-              <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside mt-2">
+              <ul className={cn("text-xs space-y-1.5 list-disc list-inside mt-2", isDark ? "text-slate-300" : "text-slate-700")}>
                 <li>Ketahui posisi Anda terhadap peta Kawasan Rawan Bencana (KRB III, II, I).</li>
                 <li>Gunakan kacamata pelindung (goggles) dan masker respirator N95 agar partikel silika tidak merusak paru-paru.</li>
                 <li>Tutup seluruh penampungan air bersih dan sumur agar tidak tercemar abu asam.</li>
@@ -426,11 +499,16 @@ export default function PreparednessPage() {
 
         {activeSopTab === "banjir" && (
           <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-850">
-              <h3 className="text-xs font-mono font-bold text-cyan-400 uppercase mb-1">
+            <div
+              className={cn(
+                "p-4 rounded-xl border transition-colors",
+                isDark ? "bg-slate-950/60 border-slate-850" : "bg-slate-50/80 border-slate-200"
+              )}
+            >
+              <h3 className="text-xs font-mono font-bold text-cyan-500 uppercase mb-1">
                 Prosedur Evakuasi Banjir Bandang
               </h3>
-              <ul className="text-xs text-slate-300 space-y-1.5 list-disc list-inside mt-2">
+              <ul className={cn("text-xs space-y-1.5 list-disc list-inside mt-2", isDark ? "text-slate-300" : "text-slate-700")}>
                 <li>Matikan sakelar MCB listrik utama sebelum air merendam stop kontak rumah.</li>
                 <li>Jangan pernah mencoba menerobos arus air deras setinggi lutut (arus 15 cm mampu menjatuhkan orang dewasa).</li>
                 <li>Jangan mengemudi menembus genangan air berarus tinggi.</li>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { useTheme } from "@/context/theme-context";
 import {
   Cpu,
   Layers,
@@ -24,7 +25,7 @@ const ThreeEarthquakeCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-full min-h-[460px] rounded-2xl border border-slate-800 bg-slate-950 flex flex-col items-center justify-center text-slate-500">
+      <div className="w-full h-full min-h-[460px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col items-center justify-center text-slate-500 shadow-sm">
         <Activity className="h-8 w-8 text-rose-500 animate-spin mb-3" />
         <span className="font-mono text-xs">Memuat WebGL 3D Simulation Engine...</span>
       </div>
@@ -107,6 +108,8 @@ const PRESETS: Preset[] = [
 ];
 
 export default function SimulatePage() {
+  const { isDark } = useTheme();
+
   useEffect(() => {
     document.title = "3D Disaster Simulator | DISASTRA AI";
   }, []);
@@ -183,22 +186,27 @@ export default function SimulatePage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8">
+    <div
+      className={cn(
+        "min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 transition-colors duration-200",
+        isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
+      )}
+    >
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="p-1 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <span className="p-1 rounded bg-rose-500/10 text-rose-500 border border-rose-500/20">
               <Cpu className="h-4 w-4" />
             </span>
-            <span className="text-xs font-mono font-semibold uppercase tracking-wider text-rose-400">
+            <span className="text-xs font-mono font-semibold uppercase tracking-wider text-rose-500">
               PHYSICS &amp; TECTONIC DYNAMICS ENGINE
             </span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+          <h1 className={cn("text-2xl sm:text-3xl font-extrabold tracking-tight transition-colors", isDark ? "text-white" : "text-slate-900")}>
             AI What-If 3D Disaster Simulator
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">
+          <p className={cn("text-xs sm:text-sm mt-1 max-w-2xl transition-colors", isDark ? "text-slate-400" : "text-slate-600")}>
             Simulasikan dinamika ruptur lempeng tektonik, deformasi dasar laut, perambatan tsunami, dan
             analisis dampak berantai terhadap infrastruktur perkotaan.
           </p>
@@ -208,7 +216,7 @@ export default function SimulatePage() {
           <button
             onClick={toggleSimulation}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs tracking-wider uppercase transition-all shadow-lg",
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs tracking-wider uppercase transition-all shadow-lg cursor-pointer",
               isSimulating
                 ? "bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30"
                 : "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 hover:scale-[1.02]"
@@ -220,18 +228,28 @@ export default function SimulatePage() {
 
           <button
             onClick={handleExportJSON}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-750 text-slate-300 hover:text-white text-xs font-semibold transition-all"
+            className={cn(
+              "flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer border",
+              isDark
+                ? "bg-slate-900 hover:bg-slate-800 border-slate-750 text-slate-300 hover:text-white"
+                : "bg-white hover:bg-slate-100 border-slate-200 text-slate-700 hover:text-slate-900 shadow-sm"
+            )}
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+            <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
             <span className="hidden sm:inline">Ekspor Data</span>
           </button>
         </div>
       </div>
 
       {/* Preset Badges Bar */}
-      <div className="mb-6 p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center gap-3">
-        <span className="text-xs font-mono font-semibold text-slate-400 flex items-center gap-1.5 shrink-0">
-          <Layers className="h-3.5 w-3.5 text-rose-400" />
+      <div
+        className={cn(
+          "mb-6 p-3.5 rounded-2xl border backdrop-blur-md flex flex-col sm:flex-row items-start sm:items-center gap-3 transition-colors",
+          isDark ? "bg-slate-900/60 border-slate-800/80" : "bg-white border-slate-200 shadow-sm"
+        )}
+      >
+        <span className={cn("text-xs font-mono font-semibold flex items-center gap-1.5 shrink-0", isDark ? "text-slate-400" : "text-slate-500")}>
+          <Layers className="h-3.5 w-3.5 text-rose-500" />
           <span>Skenario Standar:</span>
         </span>
         <div className="flex flex-wrap gap-2">
@@ -242,10 +260,14 @@ export default function SimulatePage() {
                 key={p.name}
                 onClick={() => handleApplyPreset(p)}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
+                  "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border cursor-pointer",
                   isSelected
-                    ? "bg-rose-600/20 text-rose-300 border-rose-500/50 shadow-sm font-semibold"
-                    : "bg-slate-950/60 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-800/50"
+                    ? isDark
+                      ? "bg-rose-600/20 text-rose-300 border-rose-500/50 shadow-sm font-semibold"
+                      : "bg-rose-50 text-rose-600 border-rose-200 shadow-sm font-semibold"
+                    : isDark
+                    ? "bg-slate-950/60 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-800/50"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:text-slate-900 hover:bg-slate-100"
                 )}
               >
                 {p.name} (M {p.magnitude})
@@ -275,43 +297,77 @@ export default function SimulatePage() {
 
           {/* Quick Real-Time Telemetry Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-              <span className="text-[10px] font-mono text-slate-400 uppercase">Energi Terlepas</span>
-              <p className="text-base font-extrabold text-white mt-0.5 font-mono">
+            <div
+              className={cn(
+                "p-3.5 rounded-xl border transition-colors",
+                isDark ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+              )}
+            >
+              <span className={cn("text-[10px] font-mono uppercase", isDark ? "text-slate-400" : "text-slate-500")}>
+                Energi Terlepas
+              </span>
+              <p className={cn("text-base font-extrabold mt-0.5 font-mono", isDark ? "text-white" : "text-slate-900")}>
                 {energyMegatons >= 1 ? `${energyMegatons.toFixed(1)} MT` : `${(energyMegatons * 1000).toFixed(0)} kt`}
               </p>
-              <span className="text-[10px] text-slate-500">Eqv. Trinitrotoluena</span>
+              <span className={cn("text-[10px]", isDark ? "text-slate-500" : "text-slate-400")}>
+                Eqv. Trinitrotoluena
+              </span>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-              <span className="text-[10px] font-mono text-slate-400 uppercase">Estimasi PGA</span>
-              <p className="text-base font-extrabold text-amber-400 mt-0.5 font-mono">
+            <div
+              className={cn(
+                "p-3.5 rounded-xl border transition-colors",
+                isDark ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+              )}
+            >
+              <span className={cn("text-[10px] font-mono uppercase", isDark ? "text-slate-400" : "text-slate-500")}>
+                Estimasi PGA
+              </span>
+              <p className="text-base font-extrabold text-amber-500 mt-0.5 font-mono">
                 {pgaCalculated.toFixed(2)} g
               </p>
-              <span className="text-[10px] text-slate-500">Percepatan Tanah</span>
+              <span className={cn("text-[10px]", isDark ? "text-slate-500" : "text-slate-400")}>
+                Percepatan Tanah
+              </span>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-              <span className="text-[10px] font-mono text-slate-400 uppercase">Potensi Tsunami</span>
+            <div
+              className={cn(
+                "p-3.5 rounded-xl border transition-colors",
+                isDark ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+              )}
+            >
+              <span className={cn("text-[10px] font-mono uppercase", isDark ? "text-slate-400" : "text-slate-500")}>
+                Potensi Tsunami
+              </span>
               <p
                 className={cn(
                   "text-base font-extrabold mt-0.5 font-mono",
-                  isTsunamiPotential ? "text-rose-400" : "text-emerald-400"
+                  isTsunamiPotential ? "text-rose-500" : "text-emerald-500"
                 )}
               >
                 {isTsunamiPotential ? "TINGGI" : "NIHIL"}
               </p>
-              <span className="text-[10px] text-slate-500">
+              <span className={cn("text-[10px]", isDark ? "text-slate-500" : "text-slate-400")}>
                 {isTsunamiPotential ? `H ≈ ${estimatedWaveHeight} m` : "Tanpa Deformasi Air"}
               </span>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800">
-              <span className="text-[10px] font-mono text-slate-400 uppercase">Estimasi ETA Ombak</span>
-              <p className="text-base font-extrabold text-sky-400 mt-0.5 font-mono">
+            <div
+              className={cn(
+                "p-3.5 rounded-xl border transition-colors",
+                isDark ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+              )}
+            >
+              <span className={cn("text-[10px] font-mono uppercase", isDark ? "text-slate-400" : "text-slate-500")}>
+                Estimasi ETA Ombak
+              </span>
+              <p className="text-base font-extrabold text-sky-500 mt-0.5 font-mono">
                 {isTsunamiPotential ? `${estimatedEtaMins} mnt` : "—"}
               </p>
-              <span className="text-[10px] text-slate-500">Waktu Hingga Pesisir</span>
+              <span className={cn("text-[10px]", isDark ? "text-slate-500" : "text-slate-400")}>
+                Waktu Hingga Pesisir
+              </span>
             </div>
           </div>
         </div>
@@ -319,8 +375,13 @@ export default function SimulatePage() {
         {/* Right Column: Parameters & Cascade Impact Analyzer (5 cols) */}
         <div className="lg:col-span-5 flex flex-col gap-6">
           {/* Parameter Sliders Card */}
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800">
-            <h2 className="text-sm font-bold text-white flex items-center justify-between mb-4">
+          <div
+            className={cn(
+              "p-5 rounded-2xl border transition-colors",
+              isDark ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+            )}
+          >
+            <h2 className={cn("text-sm font-bold flex items-center justify-between mb-4", isDark ? "text-white" : "text-slate-900")}>
               <span className="flex items-center gap-2">
                 <Activity className="h-4 w-4 text-rose-500" />
                 <span>Parameter Seismik &amp; Sesar</span>
@@ -332,7 +393,10 @@ export default function SimulatePage() {
                   setSlipMeters(5);
                   setMechanism("SUBDUCTION");
                 }}
-                className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1"
+                className={cn(
+                  "text-[11px] flex items-center gap-1 cursor-pointer transition-colors",
+                  isDark ? "text-slate-400 hover:text-white" : "text-slate-500 hover:text-slate-900"
+                )}
               >
                 <RotateCcw className="h-3 w-3" />
                 <span>Reset</span>
@@ -343,8 +407,10 @@ export default function SimulatePage() {
               {/* Magnitude Slider */}
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-slate-300 font-medium">Magnitudo Momen (Mw)</span>
-                  <span className="font-mono font-bold text-rose-400">M {magnitude.toFixed(1)}</span>
+                  <span className={cn("font-medium", isDark ? "text-slate-300" : "text-slate-700")}>
+                    Magnitudo Momen (Mw)
+                  </span>
+                  <span className="font-mono font-bold text-rose-500">M {magnitude.toFixed(1)}</span>
                 </div>
                 <input
                   type="range"
@@ -353,9 +419,9 @@ export default function SimulatePage() {
                   step="0.1"
                   value={magnitude}
                   onChange={(e) => setMagnitude(parseFloat(e.target.value))}
-                  className="w-full accent-rose-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+                  className={cn("w-full accent-rose-500 h-2 rounded-lg cursor-pointer", isDark ? "bg-slate-800" : "bg-slate-200")}
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+                <div className={cn("flex justify-between text-[10px] mt-0.5", isDark ? "text-slate-500" : "text-slate-400")}>
                   <span>5.0 (Kuat)</span>
                   <span>7.0 (Merusak)</span>
                   <span>9.5 (Katastrofik)</span>
@@ -365,8 +431,10 @@ export default function SimulatePage() {
               {/* Depth Slider */}
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-slate-300 font-medium">Kedalaman Hiposenter</span>
-                  <span className="font-mono font-bold text-amber-400">{depthKm} km</span>
+                  <span className={cn("font-medium", isDark ? "text-slate-300" : "text-slate-700")}>
+                    Kedalaman Hiposenter
+                  </span>
+                  <span className="font-mono font-bold text-amber-500">{depthKm} km</span>
                 </div>
                 <input
                   type="range"
@@ -375,9 +443,9 @@ export default function SimulatePage() {
                   step="5"
                   value={depthKm}
                   onChange={(e) => setDepthKm(parseInt(e.target.value))}
-                  className="w-full accent-amber-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+                  className={cn("w-full accent-amber-500 h-2 rounded-lg cursor-pointer", isDark ? "bg-slate-800" : "bg-slate-200")}
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+                <div className={cn("flex justify-between text-[10px] mt-0.5", isDark ? "text-slate-500" : "text-slate-400")}>
                   <span>5 km (Sangat Dangkal)</span>
                   <span>60 km</span>
                   <span>150 km (Menengah)</span>
@@ -387,8 +455,10 @@ export default function SimulatePage() {
               {/* Fault Slip Slider */}
               <div>
                 <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-slate-300 font-medium">Pergeseran Sesar (Displacement Slip)</span>
-                  <span className="font-mono font-bold text-sky-400">{slipMeters} meter</span>
+                  <span className={cn("font-medium", isDark ? "text-slate-300" : "text-slate-700")}>
+                    Pergeseran Sesar (Displacement Slip)
+                  </span>
+                  <span className="font-mono font-bold text-sky-500">{slipMeters} meter</span>
                 </div>
                 <input
                   type="range"
@@ -397,9 +467,9 @@ export default function SimulatePage() {
                   step="0.5"
                   value={slipMeters}
                   onChange={(e) => setSlipMeters(parseFloat(e.target.value))}
-                  className="w-full accent-sky-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+                  className={cn("w-full accent-sky-500 h-2 rounded-lg cursor-pointer", isDark ? "bg-slate-800" : "bg-slate-200")}
                 />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+                <div className={cn("flex justify-between text-[10px] mt-0.5", isDark ? "text-slate-500" : "text-slate-400")}>
                   <span>0.5 m</span>
                   <span>12 m</span>
                   <span>25 m</span>
@@ -408,7 +478,7 @@ export default function SimulatePage() {
 
               {/* Fault Mechanism */}
               <div>
-                <label className="text-xs text-slate-300 font-medium block mb-1.5">
+                <label className={cn("text-xs font-medium block mb-1.5", isDark ? "text-slate-300" : "text-slate-700")}>
                   Mekanisme Patahan
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -422,10 +492,14 @@ export default function SimulatePage() {
                       type="button"
                       onClick={() => setMechanism(mech.id as "SUBDUCTION" | "STRIKE_SLIP" | "NORMAL")}
                       className={cn(
-                        "py-2 px-2 rounded-lg text-xs font-semibold text-center transition-all border",
+                        "py-2 px-2 rounded-lg text-xs font-semibold text-center transition-all border cursor-pointer",
                         mechanism === mech.id
-                          ? "bg-slate-800 text-rose-400 border-rose-500/50"
-                          : "bg-slate-950/60 text-slate-400 border-slate-800 hover:text-slate-200"
+                          ? isDark
+                            ? "bg-slate-800 text-rose-400 border-rose-500/50"
+                            : "bg-rose-50 text-rose-600 border-rose-300 shadow-sm"
+                          : isDark
+                          ? "bg-slate-950/60 text-slate-400 border-slate-800 hover:text-slate-200"
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:text-slate-900 hover:bg-slate-100"
                       )}
                     >
                       {mech.label}
@@ -437,12 +511,17 @@ export default function SimulatePage() {
           </div>
 
           {/* AI Cascade Impact Analyzer Card */}
-          <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 flex-1">
-            <h2 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
-              <Zap className="h-4 w-4 text-amber-400" />
+          <div
+            className={cn(
+              "p-5 rounded-2xl border flex-1 transition-colors",
+              isDark ? "bg-slate-900/80 border-slate-800" : "bg-white border-slate-200 shadow-sm"
+            )}
+          >
+            <h2 className={cn("text-sm font-bold flex items-center gap-2 mb-3", isDark ? "text-white" : "text-slate-900")}>
+              <Zap className="h-4 w-4 text-amber-500" />
               <span>AI Cascade Impact Analyzer</span>
             </h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className={cn("text-xs mb-4", isDark ? "text-slate-400" : "text-slate-600")}>
               Prediksi dampak rantai kerusakan terhadap fasilitas publik &amp; jalur evakuasi:
             </p>
 
@@ -450,13 +529,13 @@ export default function SimulatePage() {
               {/* Bridge and Roads */}
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-300 flex items-center gap-1.5">
-                    <Building2 className="h-3.5 w-3.5 text-rose-400" />
+                  <span className={cn("flex items-center gap-1.5", isDark ? "text-slate-300" : "text-slate-700")}>
+                    <Building2 className="h-3.5 w-3.5 text-rose-500" />
                     <span>Jembatan &amp; Koridor Jalan Rusak</span>
                   </span>
-                  <span className="font-mono font-bold text-rose-400">{bridgeRisk}%</span>
+                  <span className="font-mono font-bold text-rose-500">{bridgeRisk}%</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div className={cn("w-full h-2 rounded-full overflow-hidden", isDark ? "bg-slate-800" : "bg-slate-100")}>
                   <div
                     className="h-full bg-rose-500 transition-all duration-500"
                     style={{ width: `${bridgeRisk}%` }}
@@ -467,13 +546,13 @@ export default function SimulatePage() {
               {/* Power Grid */}
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-300 flex items-center gap-1.5">
-                    <Zap className="h-3.5 w-3.5 text-amber-400" />
+                  <span className={cn("flex items-center gap-1.5", isDark ? "text-slate-300" : "text-slate-700")}>
+                    <Zap className="h-3.5 w-3.5 text-amber-500" />
                     <span>Probabilitas Pemadaman Listrik Gardu</span>
                   </span>
-                  <span className="font-mono font-bold text-amber-400">{gridBlackout}%</span>
+                  <span className="font-mono font-bold text-amber-500">{gridBlackout}%</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div className={cn("w-full h-2 rounded-full overflow-hidden", isDark ? "bg-slate-800" : "bg-slate-100")}>
                   <div
                     className="h-full bg-amber-500 transition-all duration-500"
                     style={{ width: `${gridBlackout}%` }}
@@ -484,13 +563,13 @@ export default function SimulatePage() {
               {/* Hospitals */}
               <div>
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-slate-300 flex items-center gap-1.5">
-                    <Activity className="h-3.5 w-3.5 text-sky-400" />
+                  <span className={cn("flex items-center gap-1.5", isDark ? "text-slate-300" : "text-slate-700")}>
+                    <Activity className="h-3.5 w-3.5 text-sky-500" />
                     <span>Overload Kapasitas Rumah Sakit</span>
                   </span>
-                  <span className="font-mono font-bold text-sky-400">{hospitalOverload}%</span>
+                  <span className="font-mono font-bold text-sky-500">{hospitalOverload}%</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div className={cn("w-full h-2 rounded-full overflow-hidden", isDark ? "bg-slate-800" : "bg-slate-100")}>
                   <div
                     className="h-full bg-sky-500 transition-all duration-500"
                     style={{ width: `${hospitalOverload}%` }}
@@ -500,12 +579,19 @@ export default function SimulatePage() {
             </div>
 
             {/* AI Evacuation Recommendation Banner */}
-            <div className="mt-5 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800/80">
+            <div
+              className={cn(
+                "mt-5 p-3.5 rounded-xl border transition-colors",
+                isDark ? "bg-slate-950/80 border-slate-800/80" : "bg-slate-50/80 border-slate-200"
+              )}
+            >
               <div className="flex items-start gap-2.5">
-                <Navigation className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                <Navigation className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
                 <div>
-                  <h4 className="text-xs font-bold text-white">Rekomendasi Rute Evakuasi AI</h4>
-                  <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                  <h4 className={cn("text-xs font-bold", isDark ? "text-white" : "text-slate-900")}>
+                    Rekomendasi Rute Evakuasi AI
+                  </h4>
+                  <p className={cn("text-[11px] mt-1 leading-relaxed", isDark ? "text-slate-400" : "text-slate-600")}>
                     {isTsunamiPotential
                       ? `Peringatan Tsunami Dikeluarkan! Waktu evakuasi horizontal ${estimatedEtaMins} menit. Jauhi garis pantai menuju dataran tinggi > 20 mdpl. Hindari jembatan sungai.`
                       : `Guncangan tanah diperkirakan kuat (PGA ${pgaEstimated}g). Utamakan evakuasi tanah lapang, waspadai retakan tanah dan material kaca perkotaan.`}

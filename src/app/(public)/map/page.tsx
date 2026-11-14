@@ -42,7 +42,7 @@ const DisasterMap = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-full w-full flex items-center justify-center bg-slate-950 text-xs text-slate-500 font-mono">
+      <div className="h-full w-full flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-xs text-slate-500 font-mono">
         <Activity className="h-6 w-6 animate-spin text-rose-500 mr-2" />
         Memuat Peta Spasial Indonesia &amp; Layer Sesar...
       </div>
