@@ -22,11 +22,18 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ArcRotateCamera, Engine, Scene, StandardMaterial } from "@babylonjs/core";
+import {
+  ArcRotateCamera,
+  Color3,
+  Engine,
+  Scene,
+  Vector3,
+  type StandardMaterial,
+} from "@babylonjs/core";
 import type { CameraPreset, SimDisasterType, ThreeEarthquakeCanvasProps } from "./types";
 import { CAMERA_BY_DISASTER, CAMERA_PRESETS } from "./babylon/camera-presets";
 import { estimatePga, estimateTsunamiHeight } from "./babylon/physics";
-import type { DisasterSceneFeatures } from "./babylon/scene";
+import { createDisasterScene, type DisasterSceneFeatures } from "./babylon/scene";
 
 export type { SimDisasterType, SimMechanism } from "./types";
 
@@ -152,12 +159,8 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
     setSelectedCamera(preset);
     const p = CAMERA_PRESETS[preset];
     if (activeCameraRef.current) {
-      void import("@babylonjs/core").then((B) => {
-        if (activeCameraRef.current) {
-          activeCameraRef.current.setTarget(new B.Vector3(...p.target));
-          activeCameraRef.current.setPosition(new B.Vector3(...p.position));
-        }
-      });
+      activeCameraRef.current.setTarget(new Vector3(...p.target));
+      activeCameraRef.current.setPosition(new Vector3(...p.position));
     }
   };
 
@@ -167,12 +170,8 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
     setSelectedCamera(recommended);
     const p = CAMERA_PRESETS[recommended];
     if (activeCameraRef.current) {
-      void import("@babylonjs/core").then((B) => {
-        if (activeCameraRef.current) {
-          activeCameraRef.current.setTarget(new B.Vector3(...p.target));
-          activeCameraRef.current.setPosition(new B.Vector3(...p.position));
-        }
-      });
+      activeCameraRef.current.setTarget(new Vector3(...p.target));
+      activeCameraRef.current.setPosition(new Vector3(...p.position));
     }
   }, [disasterType]);
 
@@ -187,227 +186,217 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
   // Main Babylon.js Initialization (Mounts ONCE)
   // --------------------------------------------------------------------------
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     let disposed = false;
     let engine: Engine | undefined;
     let scene: Scene | undefined;
     let activeCamera: ArcRotateCamera | undefined;
     let ro: ResizeObserver | undefined;
 
-    void (async () => {
-      try {
-        const canvas = canvasRef.current;
-        if (!canvas || disposed) return;
+    try {
+      // Initialize Engine synchronously
+      engine = new Engine(canvas, true, {
+        preserveDrawingBuffer: true,
+        stencil: true,
+        adaptToDeviceRatio: true,
+        antialias: true,
+      });
 
-        const B = await import("@babylonjs/core");
-        await import("@babylonjs/loaders");
+      // Initialize Scene
+      scene = new Scene(engine);
 
-        if (disposed) return;
+      // Load 3D Disaster Environment
+      const features = createDisasterScene(scene, simRef.current.disasterType);
+      featuresRef.current = features;
 
-        // Initialize Engine
-        engine = new B.Engine(canvas, true, {
-          preserveDrawingBuffer: true,
-          stencil: true,
-          adaptToDeviceRatio: true,
-          antialias: true,
-        });
+      // Initialize Camera with preset position & target
+      const p = CAMERA_PRESETS[CAMERA_BY_DISASTER[simRef.current.disasterType]];
+      activeCamera = new ArcRotateCamera(
+        "mainOrbitCam",
+        Math.PI / 4,
+        Math.PI / 3.2,
+        48,
+        new Vector3(...p.target),
+        scene
+      );
+      activeCamera.setPosition(new Vector3(...p.position));
+      activeCamera.setTarget(new Vector3(...p.target));
+      activeCamera.attachControl(canvas, true);
+      activeCamera.lowerRadiusLimit = 6;
+      activeCamera.upperRadiusLimit = 120;
+      activeCamera.lowerBetaLimit = 0.1;
+      activeCamera.upperBetaLimit = Math.PI / 2.05;
+      activeCamera.wheelPrecision = 20;
+      activeCamera.panningSensibility = 100;
+      scene.activeCamera = activeCamera;
+      activeCameraRef.current = activeCamera;
 
-        // Initialize Scene
-        scene = new B.Scene(engine);
+      // Apply initial night mode
+      features.updateNightMode(simRef.current.night);
 
-        // Load 3D Disaster Environment
-        const { createDisasterScene } = await import("./babylon/scene");
-        const features = createDisasterScene(scene, simRef.current.disasterType);
-        featuresRef.current = features;
-
-        // Initialize Camera with preset position & target
-        const p = CAMERA_PRESETS[CAMERA_BY_DISASTER[simRef.current.disasterType]];
-        activeCamera = new B.ArcRotateCamera(
-          "mainOrbitCam",
-          Math.PI / 4,
-          Math.PI / 3.2,
-          48,
-          new B.Vector3(...p.target),
-          scene
-        );
-        activeCamera.setPosition(new B.Vector3(...p.position));
-        activeCamera.setTarget(new B.Vector3(...p.target));
-        activeCamera.attachControl(canvas, true);
-        activeCamera.lowerRadiusLimit = 6;
-        activeCamera.upperRadiusLimit = 120;
-        activeCamera.lowerBetaLimit = 0.1;
-        activeCamera.upperBetaLimit = Math.PI / 2.05;
-        activeCamera.wheelPrecision = 20;
-        activeCamera.panningSensibility = 100;
-        scene.activeCamera = activeCamera;
-        activeCameraRef.current = activeCamera;
-
-        // Apply night mode if initial state is night
-        features.updateNightMode(simRef.current.night);
-
-        // Responsive Resize Handler
-        const handleResize = () => {
-          if (engine && !engine.isDisposed) {
-            engine.resize();
-          }
-        };
-        window.addEventListener("resize", handleResize);
-
-        if (canvas.parentElement) {
-          ro = new ResizeObserver(() => handleResize());
-          ro.observe(canvas.parentElement);
+      // Responsive Resize Handler
+      const handleResize = () => {
+        if (engine && !engine.isDisposed) {
+          engine.resize();
         }
-        handleResize();
+      };
+      window.addEventListener("resize", handleResize);
 
-        // --------------------------------------------------------------------
-        // Render Loop
-        // --------------------------------------------------------------------
-        let lastTime = performance.now();
+      if (canvas.parentElement) {
+        ro = new ResizeObserver(() => handleResize());
+        ro.observe(canvas.parentElement);
+      }
+      handleResize();
 
-        engine.runRenderLoop(() => {
-          if (!scene || disposed || !engine) return;
+      // --------------------------------------------------------------------
+      // Render Loop
+      // --------------------------------------------------------------------
+      let lastTime = performance.now();
 
-          const now = performance.now();
-          const dt = Math.min((now - lastTime) / 1000, 0.06);
-          lastTime = now;
+      engine.runRenderLoop(() => {
+        if (!scene || disposed || !engine) return;
 
-          const sim = simRef.current;
-          if (sim.running) {
-            sim.t += dt;
+        const now = performance.now();
+        const dt = Math.min((now - lastTime) / 1000, 0.06);
+        lastTime = now;
+
+        const sim = simRef.current;
+        if (sim.running) {
+          sim.t += dt;
+        }
+
+        const t = sim.t;
+        const pga = estimatePga(sim.magnitude, sim.depthKm);
+
+        // Disaster Simulation Dynamics
+        if (features) {
+          // Natural Water Ripple Animation
+          if (features.water) {
+            features.water.position.y = -0.28 + Math.sin(now * 0.002) * 0.04;
           }
 
-          const t = sim.t;
-          const pga = estimatePga(sim.magnitude, sim.depthKm);
+          // A. TSUNAMI SIMULATION
+          if (sim.disasterType === "TSUNAMI" && sim.running) {
+            const surgeProgress = Math.min(1.0, t / 8.0);
+            const maxSurge = Math.min(
+              3.8,
+              estimateTsunamiHeight(sim.magnitude, sim.slipMeters, sim.mechanism, sim.depthKm) * 0.45 + 1.2
+            );
+            const currentLevel = maxSurge * surgeProgress;
 
-          // Disaster Simulation Dynamics
-          if (features) {
-            // Natural Water Ripple Animation
-            if (features.water) {
-              features.water.position.y = -0.28 + Math.sin(now * 0.002) * 0.04;
-            }
+            features.water.position.y = -0.28 + currentLevel * 0.4;
+            features.floodWater.scaling.x = Math.max(0.001, surgeProgress);
+            features.floodWater.position.x = 2.0 - 10.0 * surgeProgress;
+            features.floodWater.position.y = -0.22 + currentLevel * 0.35;
+          } else if (sim.disasterType !== "TSUNAMI") {
+            features.floodWater.scaling.x = 0.001;
+          }
 
-            // A. TSUNAMI SIMULATION
-            if (sim.disasterType === "TSUNAMI" && sim.running) {
-              const surgeProgress = Math.min(1.0, t / 8.0);
-              const maxSurge = Math.min(
-                3.8,
-                estimateTsunamiHeight(sim.magnitude, sim.slipMeters, sim.mechanism, sim.depthKm) * 0.45 + 1.2
-              );
-              const currentLevel = maxSurge * surgeProgress;
+          // B. VOLCANO ERUPTION SIMULATION
+          if (sim.disasterType === "VOLCANO") {
+            const er = sim.running ? Math.min(1.0, t / 4.0) : 0.2;
+            features.craterMagma.scaling.y = 1.0 + Math.sin(now * 0.008) * 0.15 * er;
+            features.volcanoLight.intensity = (1.8 + er * 3.2) * (0.85 + Math.random() * 0.3);
+          } else {
+            features.volcanoLight.intensity = 0.8;
+          }
 
-              features.water.position.y = -0.28 + currentLevel * 0.4;
-              features.floodWater.scaling.x = Math.max(0.001, surgeProgress);
-              features.floodWater.position.x = 2.0 - 10.0 * surgeProgress;
-              features.floodWater.position.y = -0.22 + currentLevel * 0.35;
-            } else if (sim.disasterType !== "TSUNAMI") {
-              features.floodWater.scaling.x = 0.001;
-            }
+          // C. EARTHQUAKE & LIQUEFACTION
+          if ((sim.disasterType === "EARTHQUAKE" || sim.disasterType === "LIQUEFACTION") && sim.running) {
+            const shakeIntensity = Math.min(0.14, pga * 0.09) * Math.max(0, 1 - t / 14);
 
-            // B. VOLCANO ERUPTION SIMULATION
-            if (sim.disasterType === "VOLCANO") {
-              const er = sim.running ? Math.min(1.0, t / 4.0) : 0.2;
-              features.craterMagma.scaling.y = 1.0 + Math.sin(now * 0.008) * 0.15 * er;
-              features.volcanoLight.intensity = (1.8 + er * 3.2) * (0.85 + Math.random() * 0.3);
-            } else {
-              features.volcanoLight.intensity = 0.8;
-            }
-
-            // C. EARTHQUAKE & LIQUEFACTION
-            if ((sim.disasterType === "EARTHQUAKE" || sim.disasterType === "LIQUEFACTION") && sim.running) {
-              const shakeIntensity = Math.min(0.14, pga * 0.09) * Math.max(0, 1 - t / 14);
-
-              features.buildings.forEach((b, i) => {
-                const swayFreq = 12 + (i % 5);
-                const sway = Math.sin(t * swayFreq + i) * shakeIntensity * (b.height / 3.5);
-                b.mesh.rotation.z = sway;
-                b.mesh.rotation.x = Math.cos(t * (swayFreq * 0.8) + i) * (sway * 0.6);
-
-                if (sim.disasterType === "LIQUEFACTION") {
-                  const sinkProgress = Math.min(1.0, t / 10.0);
-                  const sinkAmt = (0.2 + (i % 4) * 0.25) * sinkProgress;
-                  b.mesh.position.y = b.originalY - sinkAmt;
-                  b.mesh.rotation.z += (i % 2 === 0 ? 0.08 : -0.08) * sinkProgress;
-                }
-              });
-
-              const crackProgress = Math.min(1.0, t / 6.0);
-              features.faultCracks.forEach((c) => {
-                c.scaling.x = Math.max(0.001, crackProgress * 1.8);
-              });
+            features.buildings.forEach((b, i) => {
+              const swayFreq = 12 + (i % 5);
+              const sway = Math.sin(t * swayFreq + i) * shakeIntensity * (b.height / 3.5);
+              b.mesh.rotation.z = sway;
+              b.mesh.rotation.x = Math.cos(t * (swayFreq * 0.8) + i) * (sway * 0.6);
 
               if (sim.disasterType === "LIQUEFACTION") {
-                const mudMat = features.mudLake.material as StandardMaterial;
-                if (mudMat) mudMat.alpha = Math.min(0.85, t / 8.0);
+                const sinkProgress = Math.min(1.0, t / 10.0);
+                const sinkAmt = (0.2 + (i % 4) * 0.25) * sinkProgress;
+                b.mesh.position.y = b.originalY - sinkAmt;
+                b.mesh.rotation.z += (i % 2 === 0 ? 0.08 : -0.08) * sinkProgress;
               }
-            } else if (!sim.running) {
-              features.buildings.forEach((b) => {
-                b.mesh.rotation.z = 0;
-                b.mesh.rotation.x = 0;
-                b.mesh.position.y = b.originalY;
-              });
-              features.faultCracks.forEach((c) => {
-                c.scaling.x = 0.001;
-              });
+            });
+
+            const crackProgress = Math.min(1.0, t / 6.0);
+            features.faultCracks.forEach((c) => {
+              c.scaling.x = Math.max(0.001, crackProgress * 1.8);
+            });
+
+            if (sim.disasterType === "LIQUEFACTION") {
               const mudMat = features.mudLake.material as StandardMaterial;
-              if (mudMat) mudMat.alpha = 0;
+              if (mudMat) mudMat.alpha = Math.min(0.85, t / 8.0);
             }
+          } else if (!sim.running) {
+            features.buildings.forEach((b) => {
+              b.mesh.rotation.z = 0;
+              b.mesh.rotation.x = 0;
+              b.mesh.position.y = b.originalY;
+            });
+            features.faultCracks.forEach((c) => {
+              c.scaling.x = 0.001;
+            });
+            const mudMat = features.mudLake.material as StandardMaterial;
+            if (mudMat) mudMat.alpha = 0;
+          }
 
-            // D. WILDFIRE (Rothermel Propagation)
-            if (sim.disasterType === "WILDFIRE" && sim.running) {
-              const spreadRate = 1.4;
-              const fireRadius = t * spreadRate;
-              let burningCount = 0;
-              let centerBurnX = 0;
-              let centerBurnZ = 0;
+          // D. WILDFIRE (Rothermel Propagation)
+          if (sim.disasterType === "WILDFIRE" && sim.running) {
+            const spreadRate = 1.4;
+            const fireRadius = t * spreadRate;
+            let burningCount = 0;
+            let centerBurnX = 0;
+            let centerBurnZ = 0;
 
-              features.trees.forEach((tree) => {
-                const d = fireRadius - tree.distFromIgnition;
-                if (d > 0 && d < 6.0) {
-                  burningCount++;
-                  centerBurnX += tree.x;
-                  centerBurnZ += tree.z;
-                  const flicker = 0.7 + Math.random() * 0.3;
-                  tree.crowns.forEach((crw) => {
-                    const mat = crw.material as StandardMaterial;
-                    if (mat) {
-                      mat.diffuseColor = new B.Color3(1.0, 0.3 * flicker, 0.05);
-                      mat.emissiveColor = new B.Color3(0.9 * flicker, 0.2, 0.02);
-                    }
-                  });
-                } else if (d >= 6.0) {
-                  tree.crowns.forEach((crw) => {
-                    const mat = crw.material as StandardMaterial;
-                    if (mat) {
-                      mat.diffuseColor = new B.Color3(0.18, 0.16, 0.15);
-                      mat.emissiveColor = new B.Color3(0, 0, 0);
-                    }
-                  });
-                }
-              });
-
-              if (burningCount > 0) {
-                features.fireLight.position.set(centerBurnX / burningCount, 2.5, centerBurnZ / burningCount);
-                features.fireLight.intensity =
-                  (1.5 + Math.min(4.0, burningCount * 0.2)) * (0.85 + Math.random() * 0.3);
+            features.trees.forEach((tree) => {
+              const d = fireRadius - tree.distFromIgnition;
+              if (d > 0 && d < 6.0) {
+                burningCount++;
+                centerBurnX += tree.x;
+                centerBurnZ += tree.z;
+                const flicker = 0.7 + Math.random() * 0.3;
+                tree.crowns.forEach((crw) => {
+                  const mat = crw.material as StandardMaterial;
+                  if (mat) {
+                    mat.diffuseColor = new Color3(1.0, 0.3 * flicker, 0.05);
+                    mat.emissiveColor = new Color3(0.9 * flicker, 0.2, 0.02);
+                  }
+                });
+              } else if (d >= 6.0) {
+                tree.crowns.forEach((crw) => {
+                  const mat = crw.material as StandardMaterial;
+                  if (mat) {
+                    mat.diffuseColor = new Color3(0.18, 0.16, 0.15);
+                    mat.emissiveColor = new Color3(0, 0, 0);
+                  }
+                });
               }
-            } else if (sim.disasterType !== "WILDFIRE" || !sim.running) {
-              features.fireLight.intensity = 0;
-            }
-          }
+            });
 
-          // Render Scene
-          try {
-            scene.render();
-          } catch (e) {
-            setRenderError(e instanceof Error ? e.message : String(e));
+            if (burningCount > 0) {
+              features.fireLight.position.set(centerBurnX / burningCount, 2.5, centerBurnZ / burningCount);
+              features.fireLight.intensity =
+                (1.5 + Math.min(4.0, burningCount * 0.2)) * (0.85 + Math.random() * 0.3);
+            }
+          } else if (sim.disasterType !== "WILDFIRE" || !sim.running) {
+            features.fireLight.intensity = 0;
           }
-        });
-      } catch (error) {
-        console.error("Babylon initialization failed:", error);
-        if (!disposed) {
-          setRenderError(error instanceof Error ? error.message : "Gagal memuat engine 3D.");
         }
-      }
-    })();
+
+        // Render Scene
+        try {
+          scene.render();
+        } catch (e) {
+          setRenderError(e instanceof Error ? e.message : String(e));
+        }
+      });
+    } catch (error) {
+      console.error("Babylon initialization failed:", error);
+      setRenderError(error instanceof Error ? error.message : "Gagal memuat engine 3D.");
+    }
 
     return () => {
       disposed = true;
