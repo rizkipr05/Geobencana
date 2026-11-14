@@ -34,6 +34,9 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
   const [night, setNight] = useState(false);
   const [sound, setSound] = useState(true);
   const [elapsed, setElapsed] = useState(0);
+  const [renderError, setRenderError] = useState("");
+  const simRef = useRef({ running: isSimulating, magnitude, depthKm, disasterType });
+  useEffect(() => { simRef.current = { running: isSimulating, magnitude, depthKm, disasterType }; }, [isSimulating, magnitude, depthKm, disasterType]);
   const warning = !isSimulating ? "" : estimatePga(magnitude, depthKm) > 0.6
     ? "BAHAYA: Guncangan sangat kuat — evakuasi ke area terbuka"
     : disasterType === "TSUNAMI" && estimateTsunamiHeight(magnitude, slipMeters, mechanism, depthKm) > 0
@@ -52,63 +55,75 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
       await import("@babylonjs/loaders");
       const canvas = canvasRef.current;
       if (!canvas || disposed) return;
-      engine = new B.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true, adaptToDeviceRatio: true, antialias: true });
-      engine.resize();
-      scene = new B.Scene(engine);
-      scene.clearColor = new B.Color4(0.52, 0.68, 0.75, 1);
-      const { createDisasterScene } = await import("./babylon/scene");
-      const features = createDisasterScene(scene, disasterType);
-      const preset = CAMERA_PRESETS[camera];
-      const target = new B.Vector3(...preset.target);
-      const offset = new B.Vector3(...preset.position).subtract(target);
-      activeCamera = new B.ArcRotateCamera("orbit-camera", Math.atan2(offset.z, offset.x), Math.acos(offset.y / offset.length()), offset.length(), target, scene);
-      activeCamera.attachControl(canvas, true);
-      activeCamera.lowerRadiusLimit = 5; activeCamera.upperRadiusLimit = 72;
-      activeCamera.lowerBetaLimit = 0.2; activeCamera.upperBetaLimit = Math.PI / 2.05;
-      activeCamera.minZ = 0.1;
-      activeCamera.wheelPrecision = 35;
-      activeCamera.setTarget(target);
-      scene.activeCamera = activeCamera;
       try {
-        const sun = scene.lights.find((light) => light.name === "sun");
-        if (sun instanceof B.DirectionalLight && engine.getCaps().standardDerivatives) {
-          const shadow = new B.ShadowGenerator(1024, sun);
-          shadow.useBlurExponentialShadowMap = true; shadow.blurKernel = 16;
-          for (const mesh of scene.meshes) if (mesh.name.startsWith("building-") || mesh.name.startsWith("trunk-")) shadow.addShadowCaster(mesh);
-        }
-      } catch (error) {
-        console.warn("Babylon shadows unavailable; rendering without shadows", error);
-      }
-      scene.meshes.forEach((mesh) => { mesh.receiveShadows = true; });
-      engine.resize();
-      engine.runRenderLoop(() => {
-        if (!scene || disposed) return;
-        const t = performance.now() / 1000;
-        if (isSimulating) {
-          const amplitude = Math.min(0.11, estimatePga(magnitude, depthKm) * 0.07);
-          if (disasterType === "EARTHQUAKE" || disasterType === "LIQUEFACTION") {
-            scene.meshes.filter((m) => m.name.startsWith("building-")).forEach((m, i) => { m.rotation.z = Math.sin(t * 9 + i) * amplitude; });
-          }
-          if (disasterType === "TSUNAMI") features.water.position.y = -0.62 + Math.max(0, Math.sin(t * 1.2) * 0.08);
-          if (disasterType === "VOLCANO") features.lava.scaling.y = 1 + Math.sin(t * 2) * 0.05;
-          if (disasterType === "WILDFIRE") scene.meshes.filter((m) => m.name.startsWith("crown-")).slice(0, Math.min(48, Math.floor(t * 2))).forEach((m) => { (m.material as PBRMaterial).albedoColor = new B.Color3(0.22, 0.18, 0.12); });
-        }
+        if (!canvas.clientWidth || !canvas.clientHeight) throw new Error("Canvas 3D belum memiliki ukuran.");
+        engine = new B.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true, adaptToDeviceRatio: true, antialias: true });
+        scene = new B.Scene(engine);
+        scene.clearColor = new B.Color4(0.52, 0.68, 0.75, 1);
+        const { createDisasterScene } = await import("./babylon/scene");
+        const features = createDisasterScene(scene, disasterType);
+        const preset = CAMERA_PRESETS[camera];
+        const target = new B.Vector3(...preset.target);
+        const offset = new B.Vector3(...preset.position).subtract(target);
+        activeCamera = new B.ArcRotateCamera("orbit-camera", Math.atan2(offset.z, offset.x), Math.acos(offset.y / offset.length()), offset.length(), target, scene);
+        activeCamera.attachControl(canvas, true);
+        activeCamera.lowerRadiusLimit = 5; activeCamera.upperRadiusLimit = 72;
+        activeCamera.lowerBetaLimit = 0.2; activeCamera.upperBetaLimit = Math.PI / 2.05;
+        activeCamera.minZ = 0.1;
+        activeCamera.wheelPrecision = 35;
+        scene.activeCamera = activeCamera;
         try {
-          scene.render();
+          const sun = scene.lights.find((light) => light.name === "sun");
+          if (sun instanceof B.DirectionalLight && engine.getCaps().standardDerivatives) {
+            const shadow = new B.ShadowGenerator(1024, sun);
+            shadow.useBlurExponentialShadowMap = true; shadow.blurKernel = 16;
+            for (const mesh of scene.meshes) if (mesh.name.startsWith("building-") || mesh.name.startsWith("trunk-")) shadow.addShadowCaster(mesh);
+          }
         } catch (error) {
-          console.error("Babylon scene render failed", error);
-          engine?.stopRenderLoop();
+          console.warn("Babylon shadows unavailable; rendering without shadows", error);
         }
-      });
-      const resize = () => engine?.resize();
-      const observer = new ResizeObserver(resize);
-      if (canvas.parentElement) observer.observe(canvas.parentElement);
-      window.addEventListener("resize", resize);
-      resize();
-      unregister = () => { observer.disconnect(); window.removeEventListener("resize", resize); };
+        scene.meshes.forEach((mesh) => { mesh.receiveShadows = true; });
+        const resize = () => {
+          if (!canvas.parentElement || !engine) return;
+          const { width, height } = canvas.parentElement.getBoundingClientRect();
+          if (width < 2 || height < 2) return;
+          const ratio = Math.min(window.devicePixelRatio || 1, 1.75);
+          canvas.width = Math.round(width * ratio);
+          canvas.height = Math.round(height * ratio);
+          canvas.style.width = `${width}px`;
+          canvas.style.height = `${height}px`;
+          engine.setSize(canvas.width, canvas.height, true);
+          activeCamera!.getProjectionMatrix(true);
+          scene!.render();
+        };
+        const observer = new ResizeObserver(resize);
+        if (canvas.parentElement) observer.observe(canvas.parentElement);
+        window.addEventListener("resize", resize);
+        unregister = () => { observer.disconnect(); window.removeEventListener("resize", resize); };
+        resize();
+        engine.runRenderLoop(() => {
+          if (!scene || disposed) return;
+          const sim = simRef.current;
+          const t = performance.now() / 1000;
+          if (sim.running) {
+            const amplitude = Math.min(0.11, estimatePga(sim.magnitude, sim.depthKm) * 0.07);
+            if (sim.disasterType === "EARTHQUAKE" || sim.disasterType === "LIQUEFACTION") {
+              scene.meshes.filter((m) => m.name.startsWith("building-")).forEach((m, i) => { m.rotation.z = Math.sin(t * 9 + i) * amplitude; });
+            }
+            if (sim.disasterType === "TSUNAMI") features.water.position.y = -0.62 + Math.max(0, Math.sin(t * 1.2) * 0.08);
+            if (sim.disasterType === "VOLCANO") features.lava.scaling.y = 1 + Math.sin(t * 2) * 0.05;
+            if (sim.disasterType === "WILDFIRE") scene.meshes.filter((m) => m.name.startsWith("crown-")).slice(0, Math.min(48, Math.floor(t * 2))).forEach((m) => { (m.material as PBRMaterial).albedoColor = new B.Color3(0.22, 0.18, 0.12); });
+          }
+          try { scene.render(); }
+          catch (error) { console.error("Babylon scene render failed", error); }
+        });
+      } catch (error) {
+        console.error("Babylon scene initialization failed", error);
+        if (!disposed) setRenderError(error instanceof Error ? error.message : "Gagal membuat scene 3D.");
+      }
     })();
-    return () => { disposed = true; unregister?.(); engine?.stopRenderLoop(); scene?.dispose(); engine?.dispose(); };
-  }, [camera, disasterType, isSimulating, magnitude, depthKm]);
+    return () => { disposed = true; unregister?.(); activeCamera?.detachControl(); engine?.stopRenderLoop(); scene?.dispose(); engine?.dispose(); };
+  }, [camera, disasterType]);
 
   useEffect(() => {
     if (!isSimulating) return;
@@ -152,7 +167,8 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
   };
 
   return <div ref={wrapperRef} className="relative h-full min-h-[460px] w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-2xl select-none">
-    <canvas ref={canvasRef} className="absolute inset-0 h-full w-full cursor-grab active:cursor-grabbing" />
+    <canvas ref={canvasRef} className="absolute inset-0 z-0 block h-full w-full cursor-grab bg-[#91b6c4] active:cursor-grabbing" />
+    {renderError && <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-900/90 p-6 text-center text-sm text-rose-200">Scene 3D gagal dimuat: {renderError}</div>}
     {warning && <div className="absolute left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-rose-400/30 bg-rose-600/95 px-4 py-2 text-xs font-bold text-white shadow-lg"><AlertTriangle className="h-4 w-4" />{warning}</div>}
     <div className="absolute left-3 top-3 z-20 flex max-w-[310px] flex-col gap-2">
       <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/90 px-3 py-1.5 text-slate-200 backdrop-blur-md"><span className="h-2 w-2 animate-ping rounded-full bg-rose-500"/><span className="font-mono text-[11px] font-bold uppercase text-white">DISASTRA • Babylon.js</span><span className="ml-auto font-mono text-[10px] text-slate-400">{isSimulating ? `T+${elapsed}s` : "STANDBY"}</span></div>
