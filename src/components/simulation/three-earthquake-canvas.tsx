@@ -71,6 +71,9 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
   const [elapsed, setElapsed] = useState(0);
   const [renderError, setRenderError] = useState("");
 
+  const activeCameraRef = useRef<ArcRotateCamera | null>(null);
+  const featuresRef = useRef<DisasterSceneFeatures | null>(null);
+
   const simRef = useRef({
     running: isSimulating,
     magnitude,
@@ -101,7 +104,9 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
     if (!simRef.current.sound || typeof window === "undefined") return;
     try {
       if (!audioCtxRef.current) {
-        const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const AC =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         if (AC) audioCtxRef.current = new AC();
       }
       const ctx = audioCtxRef.current;
@@ -132,7 +137,7 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
       gain.connect(ctx.destination);
       noise.start();
     } catch {
-      // Audio autoplay policy
+      // Autoplay policy
     }
   };
 
@@ -142,28 +147,34 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
     }
   }, [isSimulating, disasterType]);
 
-  // Camera Target Reference for smooth interpolation
-  const cameraTargetRef = useRef<{
-    pos: [number, number, number];
-    target: [number, number, number];
-    lerping: boolean;
-  }>({
-    pos: CAMERA_PRESETS[cameraPreset].position,
-    target: CAMERA_PRESETS[cameraPreset].target,
-    lerping: true,
-  });
+  // Camera preset switcher
+  const handleCameraSelect = (preset: CameraPreset) => {
+    setSelectedCamera(preset);
+    const p = CAMERA_PRESETS[preset];
+    if (activeCameraRef.current) {
+      void import("@babylonjs/core").then((B) => {
+        if (activeCameraRef.current) {
+          activeCameraRef.current.setTarget(new B.Vector3(...p.target));
+          activeCameraRef.current.setPosition(new B.Vector3(...p.position));
+        }
+      });
+    }
+  };
 
+  // Switch camera when disaster type changes
   useEffect(() => {
-    const p = CAMERA_PRESETS[cameraPreset];
-    cameraTargetRef.current = {
-      pos: p.position,
-      target: p.target,
-      lerping: true,
-    };
-  }, [cameraPreset]);
-
-  // Features ref for scene interaction
-  const featuresRef = useRef<DisasterSceneFeatures | null>(null);
+    const recommended = CAMERA_BY_DISASTER[disasterType];
+    setSelectedCamera(recommended);
+    const p = CAMERA_PRESETS[recommended];
+    if (activeCameraRef.current) {
+      void import("@babylonjs/core").then((B) => {
+        if (activeCameraRef.current) {
+          activeCameraRef.current.setTarget(new B.Vector3(...p.target));
+          activeCameraRef.current.setPosition(new B.Vector3(...p.position));
+        }
+      });
+    }
+  }, [disasterType]);
 
   // Night mode toggle trigger
   useEffect(() => {
@@ -208,39 +219,29 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
         const features = createDisasterScene(scene, simRef.current.disasterType);
         featuresRef.current = features;
 
-        // Initialize Camera
-        const p = CAMERA_PRESETS[cameraPreset];
+        // Initialize Camera with preset position & target
+        const p = CAMERA_PRESETS[CAMERA_BY_DISASTER[simRef.current.disasterType]];
         activeCamera = new B.ArcRotateCamera(
           "mainOrbitCam",
-          1.0,
-          1.15,
-          45,
+          Math.PI / 4,
+          Math.PI / 3.2,
+          48,
           new B.Vector3(...p.target),
           scene
         );
         activeCamera.setPosition(new B.Vector3(...p.position));
+        activeCamera.setTarget(new B.Vector3(...p.target));
         activeCamera.attachControl(canvas, true);
         activeCamera.lowerRadiusLimit = 6;
-        activeCamera.upperRadiusLimit = 110;
-        activeCamera.lowerBetaLimit = 0.15;
+        activeCamera.upperRadiusLimit = 120;
+        activeCamera.lowerBetaLimit = 0.1;
         activeCamera.upperBetaLimit = Math.PI / 2.05;
-        activeCamera.wheelPrecision = 25;
-        activeCamera.panningSensibility = 120;
+        activeCamera.wheelPrecision = 20;
+        activeCamera.panningSensibility = 100;
         scene.activeCamera = activeCamera;
+        activeCameraRef.current = activeCamera;
 
-        // Add soft directional shadows
-        try {
-          const shadow = new B.ShadowGenerator(2048, features.sun);
-          shadow.usePoissonSampling = true;
-          shadow.bias = 0.0008;
-          shadow.normalBias = 0.02;
-          features.buildings.forEach((b) => shadow.addShadowCaster(b.mesh));
-          features.trees.forEach((t) => shadow.addShadowCaster(t.trunk));
-        } catch {
-          // Shadow fallback
-        }
-
-        // Apply night mode if active
+        // Apply night mode if initial state is night
         features.updateNightMode(simRef.current.night);
 
         // Responsive Resize Handler
@@ -277,39 +278,26 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
           const t = sim.t;
           const pga = estimatePga(sim.magnitude, sim.depthKm);
 
-          // 1. Camera Smooth Interpolation to Preset
-          if (activeCamera && cameraTargetRef.current.lerping) {
-            const desiredPos = new B.Vector3(...cameraTargetRef.current.pos);
-            const desiredTarget = new B.Vector3(...cameraTargetRef.current.target);
-
-            activeCamera.position = B.Vector3.Lerp(activeCamera.position, desiredPos, 0.08);
-            activeCamera.target = B.Vector3.Lerp(activeCamera.target, desiredTarget, 0.08);
-
-            if (B.Vector3.Distance(activeCamera.position, desiredPos) < 0.2) {
-              cameraTargetRef.current.lerping = false;
-            }
-          }
-
-          // 2. Disaster Simulation Dynamics
+          // Disaster Simulation Dynamics
           if (features) {
-            // Water Wave Animation (Continuous Natural Motion)
+            // Natural Water Ripple Animation
             if (features.water) {
-              features.water.position.y = -0.32 + Math.sin(now * 0.0018) * 0.04;
+              features.water.position.y = -0.28 + Math.sin(now * 0.002) * 0.04;
             }
 
             // A. TSUNAMI SIMULATION
             if (sim.disasterType === "TSUNAMI" && sim.running) {
               const surgeProgress = Math.min(1.0, t / 8.0);
-              const maxSurge = Math.min(3.8, estimateTsunamiHeight(sim.magnitude, sim.slipMeters, sim.mechanism, sim.depthKm) * 0.45 + 1.2);
+              const maxSurge = Math.min(
+                3.8,
+                estimateTsunamiHeight(sim.magnitude, sim.slipMeters, sim.mechanism, sim.depthKm) * 0.45 + 1.2
+              );
               const currentLevel = maxSurge * surgeProgress;
 
-              // Ocean water rises
-              features.water.position.y = -0.32 + currentLevel * 0.4;
-
-              // Flood water advances into city
+              features.water.position.y = -0.28 + currentLevel * 0.4;
               features.floodWater.scaling.x = Math.max(0.001, surgeProgress);
-              features.floodWater.position.x = 2.0 - 11.0 * surgeProgress;
-              features.floodWater.position.y = -0.25 + currentLevel * 0.35;
+              features.floodWater.position.x = 2.0 - 10.0 * surgeProgress;
+              features.floodWater.position.y = -0.22 + currentLevel * 0.35;
             } else if (sim.disasterType !== "TSUNAMI") {
               features.floodWater.scaling.x = 0.001;
             }
@@ -317,17 +305,9 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
             // B. VOLCANO ERUPTION SIMULATION
             if (sim.disasterType === "VOLCANO") {
               const er = sim.running ? Math.min(1.0, t / 4.0) : 0.2;
-              // Magma lake pulses
               features.craterMagma.scaling.y = 1.0 + Math.sin(now * 0.008) * 0.15 * er;
-
-              // Lava flow intensifies
-              features.volcanoLight.intensity = (1.5 + er * 3.5) * (0.85 + Math.random() * 0.3);
-
-              if (features.volcanoParticles) {
-                features.volcanoParticles.emitRate = sim.running ? 220 : 60;
-              }
+              features.volcanoLight.intensity = (1.8 + er * 3.2) * (0.85 + Math.random() * 0.3);
             } else {
-              if (features.volcanoParticles) features.volcanoParticles.emitRate = 40;
               features.volcanoLight.intensity = 0.8;
             }
 
@@ -335,14 +315,12 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
             if ((sim.disasterType === "EARTHQUAKE" || sim.disasterType === "LIQUEFACTION") && sim.running) {
               const shakeIntensity = Math.min(0.14, pga * 0.09) * Math.max(0, 1 - t / 14);
 
-              // Buildings Sway & Structural Tilt
               features.buildings.forEach((b, i) => {
                 const swayFreq = 12 + (i % 5);
                 const sway = Math.sin(t * swayFreq + i) * shakeIntensity * (b.height / 3.5);
                 b.mesh.rotation.z = sway;
                 b.mesh.rotation.x = Math.cos(t * (swayFreq * 0.8) + i) * (sway * 0.6);
 
-                // Liquefaction sinking
                 if (sim.disasterType === "LIQUEFACTION") {
                   const sinkProgress = Math.min(1.0, t / 10.0);
                   const sinkAmt = (0.2 + (i % 4) * 0.25) * sinkProgress;
@@ -351,19 +329,16 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
                 }
               });
 
-              // Fault Cracks Open
               const crackProgress = Math.min(1.0, t / 6.0);
               features.faultCracks.forEach((c) => {
                 c.scaling.x = Math.max(0.001, crackProgress * 1.8);
               });
 
-              // Mud Lake Appears in Liquefaction
               if (sim.disasterType === "LIQUEFACTION") {
                 const mudMat = features.mudLake.material as StandardMaterial;
                 if (mudMat) mudMat.alpha = Math.min(0.85, t / 8.0);
               }
             } else if (!sim.running) {
-              // Return buildings to upright
               features.buildings.forEach((b) => {
                 b.mesh.rotation.z = 0;
                 b.mesh.rotation.x = 0;
@@ -376,7 +351,7 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
               if (mudMat) mudMat.alpha = 0;
             }
 
-            // D. WILDFIRE (Rothermel Model Propagation)
+            // D. WILDFIRE (Rothermel Propagation)
             if (sim.disasterType === "WILDFIRE" && sim.running) {
               const spreadRate = 1.4;
               const fireRadius = t * spreadRate;
@@ -387,7 +362,6 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
               features.trees.forEach((tree) => {
                 const d = fireRadius - tree.distFromIgnition;
                 if (d > 0 && d < 6.0) {
-                  // Currently Burning
                   burningCount++;
                   centerBurnX += tree.x;
                   centerBurnZ += tree.z;
@@ -400,7 +374,6 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
                     }
                   });
                 } else if (d >= 6.0) {
-                  // Charred Aftermath
                   tree.crowns.forEach((crw) => {
                     const mat = crw.material as StandardMaterial;
                     if (mat) {
@@ -413,15 +386,11 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
 
               if (burningCount > 0) {
                 features.fireLight.position.set(centerBurnX / burningCount, 2.5, centerBurnZ / burningCount);
-                features.fireLight.intensity = (1.5 + Math.min(4.0, burningCount * 0.2)) * (0.85 + Math.random() * 0.3);
-                if (features.fireParticles) {
-                  features.fireParticles.emitter = features.fireLight.position;
-                  features.fireParticles.emitRate = Math.min(300, burningCount * 18);
-                }
+                features.fireLight.intensity =
+                  (1.5 + Math.min(4.0, burningCount * 0.2)) * (0.85 + Math.random() * 0.3);
               }
             } else if (sim.disasterType !== "WILDFIRE" || !sim.running) {
               features.fireLight.intensity = 0;
-              if (features.fireParticles) features.fireParticles.emitRate = 0;
             }
           }
 
@@ -429,7 +398,7 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
           try {
             scene.render();
           } catch (e) {
-            console.error("Babylon render frame failed:", e);
+            setRenderError(e instanceof Error ? e.message : String(e));
           }
         });
       } catch (error) {
@@ -475,7 +444,6 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
     const pga = estimatePga(magnitude, depthKm);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Centerline
     ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -483,7 +451,6 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
     ctx.lineTo(260, 26);
     ctx.stroke();
 
-    // Waveform
     ctx.strokeStyle = pga > 0.6 ? "#ef4444" : pga > 0.3 ? "#f59e0b" : "#38bdf8";
     ctx.lineWidth = 1.6;
     ctx.beginPath();
@@ -502,7 +469,6 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
     ctx.stroke();
   }, [magnitude, depthKm, elapsed, isSimulating]);
 
-  // Warning text banner
   const pga = estimatePga(magnitude, depthKm);
   const tsunamiH = estimateTsunamiHeight(magnitude, slipMeters, mechanism, depthKm);
   const warningText = !isSimulating
@@ -629,7 +595,7 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setSelectedCamera(id)}
+                  onClick={() => handleCameraSelect(id)}
                   className={cn(
                     "flex items-center justify-end gap-1.5 px-2.5 py-1 rounded-lg text-[10px] text-right transition-all cursor-pointer",
                     isActive
