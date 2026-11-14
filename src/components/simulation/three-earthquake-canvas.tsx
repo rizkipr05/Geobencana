@@ -298,7 +298,7 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
           if (sim.disasterType === "VOLCANO") {
             const er = sim.running ? Math.min(1.0, t / 4.0) : 0.2;
             features.craterMagma.scaling.y = 1.0 + Math.sin(now * 0.008) * 0.15 * er;
-            features.volcanoLight.intensity = (1.8 + er * 3.2) * (0.85 + Math.random() * 0.3);
+            features.volcanoLight.intensity = (1.8 + er * 3.2) * (0.9 + Math.sin(now * 0.013) * 0.1);
           } else {
             features.volcanoLight.intensity = 0.8;
           }
@@ -357,7 +357,7 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
                 burningCount++;
                 centerBurnX += tree.x;
                 centerBurnZ += tree.z;
-                const flicker = 0.7 + Math.random() * 0.3;
+                const flicker = 0.85 + Math.sin(now * 0.01 + tree.x * 0.7 + tree.z) * 0.15;
                 tree.crowns.forEach((crw) => {
                   const mat = crw.material as StandardMaterial;
                   if (mat) {
@@ -379,7 +379,7 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
             if (burningCount > 0) {
               features.fireLight.position.set(centerBurnX / burningCount, 2.5, centerBurnZ / burningCount);
               features.fireLight.intensity =
-                (1.5 + Math.min(4.0, burningCount * 0.2)) * (0.85 + Math.random() * 0.3);
+                (1.5 + Math.min(4.0, burningCount * 0.2)) * (0.9 + Math.sin(now * 0.011) * 0.1);
             }
           } else if (sim.disasterType !== "WILDFIRE" || !sim.running) {
             features.fireLight.intensity = 0;

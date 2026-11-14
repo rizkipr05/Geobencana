@@ -79,6 +79,9 @@ export function createDisasterScene(scene: Scene, disaster: SimDisasterType): Di
   // MATERIALS
   // --------------------------------------------------------------------------
   const soilMat = createMat(scene, "soilMat", new Color3(0.38, 0.54, 0.32));
+  if (disaster === "WILDFIRE") soilMat.diffuseColor = new Color3(0.25, 0.35, 0.24);
+  if (disaster === "VOLCANO") soilMat.diffuseColor = new Color3(0.25, 0.23, 0.22);
+  if (disaster === "LIQUEFACTION") soilMat.diffuseColor = new Color3(0.48, 0.43, 0.32);
   const sandMat = createMat(scene, "sandMat", new Color3(0.85, 0.78, 0.58));
   const rockMat = createMat(scene, "rockMat", new Color3(0.48, 0.5, 0.52));
   const snowMat = createMat(scene, "snowMat", new Color3(0.96, 0.98, 1.0), new Color3(0.5, 0.5, 0.5));
@@ -169,7 +172,7 @@ export function createDisasterScene(scene: Scene, disaster: SimDisasterType): Di
 
   // Ocean Surface (Strait)
   const water = MeshBuilder.CreateGround("oceanWater", { width: 32, height: 42, subdivisions: 32 }, scene);
-  water.position.set(20, -0.28, 0);
+  water.position.set(25, -0.28, 0);
   water.material = waterMat;
 
   // Tsunami Floodwater Sheet
@@ -483,8 +486,9 @@ export function createDisasterScene(scene: Scene, disaster: SimDisasterType): Di
   // --------------------------------------------------------------------------
   // 6. VOLCANO ISLAND IN THE STRAIT (X: 23, Z: -6)
   // --------------------------------------------------------------------------
-  const vx = 23;
-  const vz = -6;
+  // Volcano island is deliberately placed well beyond the bridge landing.
+  const vx = 48;
+  const vz = -14;
 
   // Island Base Shelf
   const vIsland = MeshBuilder.CreateCylinder("vIsland", {
@@ -495,6 +499,7 @@ export function createDisasterScene(scene: Scene, disaster: SimDisasterType): Di
   }, scene);
   vIsland.position.set(vx, -0.2, vz);
   vIsland.material = basaltMat;
+  if (disaster !== "VOLCANO") { vIsland.isVisible = false; }
 
   // Main Volcanic Cone
   const volcano = MeshBuilder.CreateCylinder("volcanoCone", {
@@ -505,6 +510,7 @@ export function createDisasterScene(scene: Scene, disaster: SimDisasterType): Di
   }, scene);
   volcano.position.set(vx, 3.4, vz);
   volcano.material = basaltMat;
+  if (disaster !== "VOLCANO") volcano.isVisible = false;
 
   // Crater Rim Magma Chamber Lake
   const craterMagma = MeshBuilder.CreateCylinder("craterMagma", {
@@ -515,6 +521,7 @@ export function createDisasterScene(scene: Scene, disaster: SimDisasterType): Di
   }, scene);
   craterMagma.position.set(vx, 6.75, vz);
   craterMagma.material = lavaMat;
+  if (disaster !== "VOLCANO") craterMagma.isVisible = false;
 
   // Lava Flow Path down flank
   const lavaPath = [
@@ -530,12 +537,14 @@ export function createDisasterScene(scene: Scene, disaster: SimDisasterType): Di
     tessellation: 8,
   }, scene);
   lavaFlow.material = lavaMat;
+  if (disaster !== "VOLCANO") lavaFlow.isVisible = false;
 
   // Dynamic Crater Point Light
   const volcanoLight = new PointLight("volcanoLight", new Vector3(vx, 7.8, vz), scene);
   volcanoLight.diffuse = new Color3(1.0, 0.45, 0.1);
   volcanoLight.range = 30;
   volcanoLight.intensity = disaster === "VOLCANO" ? 2.8 : 0.8;
+  volcanoLight.setEnabled(disaster === "VOLCANO");
 
   // --------------------------------------------------------------------------
   // 7. TREES & FORESTRY (Western Ridge & Streets)
