@@ -27,7 +27,7 @@ const ThreeEarthquakeCanvas = dynamic(
     loading: () => (
       <div className="w-full h-full min-h-[460px] rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col items-center justify-center text-slate-500 shadow-sm">
         <Activity className="h-8 w-8 text-rose-500 animate-spin mb-3" />
-        <span className="font-mono text-xs">Memuat WebGL 3D Simulation Engine...</span>
+        <span className="font-mono text-xs">Memuat Babylon.js 3D Simulation Engine...</span>
       </div>
     ),
   }

@@ -77,7 +77,7 @@ export function HomeContent() {
           )}
         >
           Platform terpadu pemantauan bencana wilayah Indonesia (Gempa Tektonik BMKG &amp; USGS, Kebakaran Hutan, Erupsi Gunung Api &amp; Banjir NASA EONET), simulasi interaktif fisika ruptur lempeng &amp;
-          tsunami berbasis Three.js, serta asisten evakuasi AI.
+          tsunami berbasis Babylon.js, serta asisten evakuasi AI.
         </p>
 
         {/* Primary CTA Buttons */}
