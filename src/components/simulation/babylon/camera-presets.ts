@@ -1,12 +1,12 @@
 import type { CameraPreset, SimDisasterType } from "../types";
 
 export const CAMERA_PRESETS: Record<CameraPreset, { position: [number, number, number]; target: [number, number, number] }> = {
-  orbit: { position: [34, 30, 38], target: [0, 1, 0] },
-  city: { position: [-18, 13, 22], target: [-12, 2, 0] },
-  coast: { position: [-2, 10, 25], target: [6, 2, 8] },
-  crater: { position: [28, 16, 14], target: [20, 6, 0] },
-  fault: { position: [-17, 6, 26], target: [-14, 0, 0] },
-  forest: { position: [-22, 14, 25], target: [-22, 2, -8] },
+  orbit: { position: [23, 18, 27], target: [0, 1, 0] },
+  city: { position: [-10, 9, 13], target: [-8, 3, 0] },
+  coast: { position: [3, 8, 17], target: [15, 1, 2] },
+  crater: { position: [15, 10, 11], target: [47, 5, -13] },
+  fault: { position: [-13, 5, 17], target: [-14, 1, 0] },
+  forest: { position: [-15, 10, 17], target: [-25, 2, -5] },
 };
 
 export const CAMERA_BY_DISASTER: Record<SimDisasterType, CameraPreset> = {

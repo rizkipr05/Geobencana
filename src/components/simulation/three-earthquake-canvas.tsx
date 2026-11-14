@@ -6,7 +6,7 @@ import {
   Pause, Play, RotateCcw, Sun, Volume2, VolumeX, Waves, Zap, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ArcRotateCamera, DirectionalLight, Engine, PBRMaterial, Scene } from "@babylonjs/core";
+import type { ArcRotateCamera, Engine, PBRMaterial, Scene } from "@babylonjs/core";
 import type { CameraPreset, SimDisasterType, ThreeEarthquakeCanvasProps } from "./types";
 import { CAMERA_BY_DISASTER, CAMERA_PRESETS } from "./babylon/camera-presets";
 import { estimatePga, estimateTsunamiHeight } from "./babylon/physics";
@@ -52,8 +52,10 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
       await import("@babylonjs/loaders");
       const canvas = canvasRef.current;
       if (!canvas || disposed) return;
-      engine = new B.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true, adaptToDeviceRatio: true });
+      engine = new B.Engine(canvas, true, { preserveDrawingBuffer: false, stencil: true, adaptToDeviceRatio: true, antialias: true });
+      engine.resize();
       scene = new B.Scene(engine);
+      scene.clearColor = new B.Color4(0.52, 0.68, 0.75, 1);
       const { createDisasterScene } = await import("./babylon/scene");
       const features = createDisasterScene(scene, disasterType);
       const preset = CAMERA_PRESETS[camera];
@@ -61,13 +63,24 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
       const offset = new B.Vector3(...preset.position).subtract(target);
       activeCamera = new B.ArcRotateCamera("orbit-camera", Math.atan2(offset.z, offset.x), Math.acos(offset.y / offset.length()), offset.length(), target, scene);
       activeCamera.attachControl(canvas, true);
-      activeCamera.lowerRadiusLimit = 9; activeCamera.upperRadiusLimit = 72;
+      activeCamera.lowerRadiusLimit = 5; activeCamera.upperRadiusLimit = 72;
       activeCamera.lowerBetaLimit = 0.2; activeCamera.upperBetaLimit = Math.PI / 2.05;
+      activeCamera.minZ = 0.1;
+      activeCamera.wheelPrecision = 35;
+      activeCamera.setTarget(target);
       scene.activeCamera = activeCamera;
-      const shadow = new B.ShadowGenerator(2048, scene.lights[1] as DirectionalLight);
-      shadow.useBlurExponentialShadowMap = true; shadow.blurKernel = 24;
-      for (const mesh of scene.meshes) if (mesh.name.startsWith("building-") || mesh.name.startsWith("trunk-")) shadow.addShadowCaster(mesh);
-      scene.meshes.forEach((mesh) => { if (mesh.name !== "sea") mesh.receiveShadows = true; });
+      try {
+        const sun = scene.lights.find((light) => light.name === "sun");
+        if (sun instanceof B.DirectionalLight && engine.getCaps().standardDerivatives) {
+          const shadow = new B.ShadowGenerator(1024, sun);
+          shadow.useBlurExponentialShadowMap = true; shadow.blurKernel = 16;
+          for (const mesh of scene.meshes) if (mesh.name.startsWith("building-") || mesh.name.startsWith("trunk-")) shadow.addShadowCaster(mesh);
+        }
+      } catch (error) {
+        console.warn("Babylon shadows unavailable; rendering without shadows", error);
+      }
+      scene.meshes.forEach((mesh) => { mesh.receiveShadows = true; });
+      engine.resize();
       engine.runRenderLoop(() => {
         if (!scene || disposed) return;
         const t = performance.now() / 1000;
@@ -80,11 +93,19 @@ export function ThreeEarthquakeCanvas(props: ThreeEarthquakeCanvasProps) {
           if (disasterType === "VOLCANO") features.lava.scaling.y = 1 + Math.sin(t * 2) * 0.05;
           if (disasterType === "WILDFIRE") scene.meshes.filter((m) => m.name.startsWith("crown-")).slice(0, Math.min(48, Math.floor(t * 2))).forEach((m) => { (m.material as PBRMaterial).albedoColor = new B.Color3(0.22, 0.18, 0.12); });
         }
-        scene.render();
+        try {
+          scene.render();
+        } catch (error) {
+          console.error("Babylon scene render failed", error);
+          engine?.stopRenderLoop();
+        }
       });
       const resize = () => engine?.resize();
+      const observer = new ResizeObserver(resize);
+      if (canvas.parentElement) observer.observe(canvas.parentElement);
       window.addEventListener("resize", resize);
-      unregister = () => window.removeEventListener("resize", resize);
+      resize();
+      unregister = () => { observer.disconnect(); window.removeEventListener("resize", resize); };
     })();
     return () => { disposed = true; unregister?.(); engine?.stopRenderLoop(); scene?.dispose(); engine?.dispose(); };
   }, [camera, disasterType, isSimulating, magnitude, depthKm]);
